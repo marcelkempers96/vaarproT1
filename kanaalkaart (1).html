@@ -1,0 +1,1403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>VaarApp — Boat Map</title>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
+
+<style>
+  html, body { height: 100%; margin: 0; }
+  #map { position: absolute; inset: 0; }
+
+  /* Panel + toggle */
+  .panel {
+    position: absolute; top: 46px; left: 12px; z-index: 1000;
+    background: rgba(255,255,255,0.95); backdrop-filter: blur(6px);
+    border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.15);
+    padding: 12px; width: 460px; max-height: calc(100dvh - 24px); overflow: auto;
+    font: 14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    transition: transform .25s ease, opacity .25s ease, visibility .25s;
+  }
+  .panel.hidden { transform: translateX(-110%); opacity: 0; visibility: hidden; }
+  .panel h1 { font-size: 16px; margin: 0 0 8px; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 8px 0; }
+  .grid label { display: flex; align-items: center; gap: 6px; }
+  .grid input[type="number"] { width: 100%; padding: 6px 8px; border: 1px solid #ddd; border-radius: 8px; }
+  .grid input[type="checkbox"] { transform: scale(1.05); }
+  .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+  button { padding: 8px 10px; border: 0; border-radius: 10px; cursor: pointer; background: #0ea5e9; color: #fff; font-weight: 600; }
+  button.secondary { background: #111827; }
+  button.ghost { background: #e5e7eb; color: #111827; }
+  button.warn { background: #ef4444; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  select { padding: 6px 8px; border-radius: 8px; border: 1px solid #ddd; background:#fff; }
+  .small { font-size: 12px; color: #374151; }
+  .legend { margin-top: 8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .key { display:flex; align-items:center; gap:6px; }
+  .swatch { width:14px; height:14px; border-radius:3px; border:1px solid #0002; }
+  .swatch.blue { background:#3b82f6; } .swatch.orange{ background:#fb923c; }
+  .swatch.green { background:#10b981; } .swatch.red   { background:#ef4444; }
+  .swatch.purple { background:#8b5cf6; } .swatch.gray { background:#6b7280; }
+  .badge { display:inline-block; background:#111827; color:#fff; border-radius:999px; padding:2px 8px; font-size:12px; }
+
+  .statusbar {
+    position: absolute; bottom: 12px; left: 12px; z-index: 1000;
+    background: rgba(255,255,255,0.95); padding: 10px 12px; border-radius: 10px; box-shadow:0 6px 24px rgba(0,0,0,.15);
+    display:flex; gap:10px; align-items:center; font: 13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  }
+  .v-sep { width:1px; height:18px; background:#0001; }
+  .boat-icon { width:18px; height:18px; border-radius:50%; background:#111827; color:#fff; display:grid; place-items:center; font-size:12px; }
+  .attr { position: absolute; right: 12px; bottom: 12px; background: rgba(255,255,255,0.9); padding: 6px 8px; border-radius: 8px; font-size: 12px; }
+  .hint { font-size: 12px; margin-top: 6px; color:#555; }
+
+  .slot { display:grid; grid-template-columns: 1fr auto auto auto; gap:6px; align-items:center; }
+  .slot input[type="text"] { width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:8px; }
+
+  .panel-toggle {
+    position: absolute; top: 12px; left: 12px; z-index: 1100;
+    border: 0; border-radius: 10px; padding: 8px 10px;
+    background: #111827; color: #fff; font-weight: 700; cursor: pointer;
+    box-shadow: 0 6px 24px rgba(0,0,0,.15);
+  }
+  .panel-toggle[aria-pressed="true"] { background:#0ea5e9; }
+
+  /* Busy spinner */
+  .spinner {
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 2px solid #0ea5e980; border-top-color: transparent;
+    display: inline-block; animation: spin .8s linear infinite; vertical-align: -2px;
+  }
+  .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:700; background:#0ea5e9; color:#fff; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Tabs */
+  .tabs { display:flex; gap:6px; margin:8px 0; }
+  .tab-btn { padding:6px 12px; border:0; border-radius:999px; cursor:pointer; background:#e5e7eb; color:#111827; font-weight:700; white-space:nowrap; }
+  .tab-btn[aria-selected="true"] { background:#0ea5e9; color:#fff; }
+  .tabcontent { display:none; }
+  .tabcontent.active { display:block; }
+
+  @media (max-width: 600px) {
+    .panel {
+      left: 12px;
+      right: 12px;
+      width: auto; /* fill between equal margins */
+    }
+  }
+</style>
+</head>
+<body>
+<button id="panelToggle" class="panel-toggle" aria-pressed="false" aria-label="Toggle options panel">☰ Panel</button>
+<div id="map" aria-label="Canal map of the Netherlands"></div>
+
+<div class="panel" id="panel" role="region" aria-label="Controls">
+  <h1>
+    <span data-i18n="title">🚤 VaarApp <span class="badge">beta</span></span>
+    <select id="lang">
+      <option value="en" selected>English</option>
+      <option value="nl">Nederlands</option>
+    </select>
+  </h1>
+
+  <div class="tabs" role="tablist" aria-label="Panel tabs">
+    <button class="tab-btn" id="tabMainBtn" role="tab" aria-selected="true" aria-controls="tabMain" data-i18n="tabMain">Main</button>
+    <button class="tab-btn" id="tabBoatBtn" role="tab" aria-selected="false" aria-controls="tabBoat" data-i18n="tabBoat">My Boat Profile</button>
+    <button class="tab-btn" id="tabSavedBtn" role="tab" aria-selected="false" aria-controls="tabSaved" data-i18n="tabSaved">Saved Routes</button>
+    <button class="tab-btn" id="tabReportsBtn" role="tab" aria-selected="false" aria-controls="tabReports" data-i18n="tabReports">Reports</button>
+  </div>
+
+  <div id="tabMain" class="tabcontent active" role="tabpanel" aria-labelledby="tabMainBtn">
+    <p class="small" data-i18n="showOnMap">Show on Map:</p>
+
+    <div class="grid-3">
+      <label><input id="toggleWaterways" type="checkbox" checked> <span data-i18n="waterways">Waterways</span></label>
+      <label><input id="toggleLocks" type="checkbox"> <span data-i18n="locks">Locks</span></label>
+      <label><input id="toggleBridges" type="checkbox"> <span data-i18n="bridges">Bridges</span></label>
+    </div>
+    <div class="grid-3">
+      <label><input id="toggleDock" type="checkbox"> <span data-i18n="docking">Docking</span></label>
+      <label><input id="toggleReports" type="checkbox" checked> <span data-i18n="reportsToggle">Reports</span></label>
+      <span></span>
+    </div>
+
+    <div class="grid">
+      <button id="locateBtn" class="secondary">📍 <span data-i18n="locate">Locate me</span></button>
+      <span></span>
+    </div>
+
+    <div class="btns">
+      <button id="selectBtn" class="ghost"  data-i18n="select">Select Start/Finish</button>
+      <button id="cancelSelBtn" class="warn" disabled data-i18n="cancel">Cancel selection</button>
+      <button id="simulateBtn" disabled>▶︎ <span data-i18n="simulate">Simulate</span></button>
+      <button id="clearBtn" class="ghost" data-i18n="clear">Clear route</button>
+    </div>
+
+    <div class="legend small" style="margin-top:8px;">
+      <span class="key"><span class="swatch blue"></span> <span data-i18n="waterways">Waterways</span></span>
+      <span class="key"><span style="font-size:14px;line-height:14px;">🚦</span> <span data-i18n="locks">Locks</span></span>
+      <span class="key"><span class="swatch green"></span> <span data-i18n="bridges">Bridges</span></span>
+      <span class="key"><span style="font-size:14px;line-height:14px;">⚓</span> <span data-i18n="docking">Docking</span></span>
+      <span class="key"><span style="font-size:14px;line-height:14px;">⚠️</span> Reports</span>
+    </div>
+    <p class="small" data-i18n="legendHint">Click on points on the map to get more information.</p>
+    <p class="small" data-i18n="disclaimer">Data: OpenStreetMap via Overpass. Verify local regulations & notices to mariners.</p>
+  </div>
+
+  <div id="tabBoat" class="tabcontent" role="tabpanel" aria-labelledby="tabBoatBtn">
+    <div class="grid">
+      <label title="Boat length (m)"><span data-i18n="length">Length (m)</span>
+        <input id="boatLength" type="number" min="1" step="0.1" value="5">
+      </label>
+      <label title="Boat width/beam (m)"><span data-i18n="width">Width (m)</span>
+        <input id="boatWidth" type="number" min="0.5" step="0.1" value="1.5">
+      </label>
+    </div>
+    <div class="grid">
+      <label title="Cruising speed (km/h) for ETA"><span data-i18n="speed">Speed (km/h)</span>
+        <input id="boatSpeed" type="number" min="1" step="0.5" value="7">
+      </label>
+      <span></span>
+    </div>
+    <div class="grid">
+      <label title="Boat height (m)"><span data-i18n="height">Height (m)</span>
+        <input id="boatHeight" type="number" min="0.5" step="0.1" value="2.0">
+      </label>
+      <label title="Boat draught (m)"><span data-i18n="draught">Draught (m)</span>
+        <input id="boatDraught" type="number" min="0.1" step="0.1" value="0.7">
+      </label>
+    </div>
+  </div>
+
+  <div id="tabSaved" class="tabcontent" role="tabpanel" aria-labelledby="tabSavedBtn">
+    <h3 style="margin:12px 0 6px 0;font-size:14px;" data-i18n="savedRoutesHdr">Saved routes (max 3)</h3>
+    <div class="slot" style="margin-bottom:10px;">
+      <input id="slotName1" type="text" placeholder="Route 1 name">
+      <button id="save1"  data-i18n="save">Save</button>
+      <button id="load1" class="secondary" data-i18n="load">Load</button>
+      <button id="del1"  class="warn" data-i18n="del">Del</button>
+    </div>
+    <div class="slot" style="margin-bottom:10px;">
+      <input id="slotName2" type="text" placeholder="Route 2 name">
+      <button id="save2"  data-i18n="save">Save</button>
+      <button id="load2" class="secondary" data-i18n="load">Load</button>
+      <button id="del2"  class="warn" data-i18n="del">Del</button>
+    </div>
+    <div class="slot" style="margin-bottom:10px;">
+      <input id="slotName3" type="text" placeholder="Route 3 name">
+      <button id="save3"  data-i18n="save">Save</button>
+      <button id="load3" class="secondary" data-i18n="load">Load</button>
+      <button id="del3"  class="warn" data-i18n="del">Del</button>
+    </div>
+  </div>
+
+  <div id="tabReports" class="tabcontent" role="tabpanel" aria-labelledby="tabReportsBtn">
+    <div class="grid">
+      <label><span data-i18n="selectCategory">Category</span>
+        <select id="reportCategory"></select>
+      </label>
+    </div>
+    <div class="grid">
+      <label style="grid-column:1 / -1"><span data-i18n="note">Note</span></label>
+      <input id="reportNote" type="text" placeholder="Optional details" style="grid-column:1 / -1">
+    </div>
+    <div class="grid">
+      <button id="pickReportBtn" class="ghost" data-i18n="pickLocation">Pick location</button>
+      <button id="submitReportBtn" class="secondary" disabled data-i18n="submitReport">Submit report</button>
+    </div>
+    <p class="small"><span data-i18n="location">Location</span>: <span id="reportLocText">—</span></p>
+    <h3 style="margin:12px 0 6px 0;font-size:14px;">Reports</h3>
+    <p id="reportsCounts" class="small" style="opacity:.7"></p>
+    <div id="reportsList" class="small"></div>
+  </div>
+</div>
+
+<div class="statusbar">
+  <span class="boat-icon">⛵</span>
+  <span id="statusText">Ready.</span>
+  <span class="v-sep"></span>
+  <span id="routeStats">Route: —</span>
+  <span id="busy" style="display:none"><span class="spinner"></span></span>
+  <span id="routingPill" class="pill" style="display:none">Routing…</span>
+</div>
+
+<div class="attr">© OpenStreetMap contributors • Tiles © OSM</div>
+
+<script defer src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script defer>
+/* ========= Boot ========= */
+(function boot(){ const go=()=>{ if(!window.L) return setTimeout(go,40); initApp(); }; go(); })();
+
+/* =============== i18n =============== */
+const I18N = {
+  en: {
+    title: "🚤 VaarApp <span class='badge'>beta</span>",
+    length:"Length (m)", width:"Width (m)", speed:"Speed (km/h)", follow:"Follow me",
+    height:"Height (m)", draught:"Draught (m)",
+    tabMain:"Main", tabBoat:"My Boat Profile", tabSaved:"Saved Routes", tabReports:"Reports",
+    waterways:"Waterways", locks:"Locks", bridges:"Bridges", snap:"Snap clicks to canal",
+    fuel:"Gas stations", docking:"Docking",
+    locate:"Locate me", select:"Select Start/Finish", cancel:"Cancel selection",
+    simulate:"Simulate", clear:"Clear route",
+    reportsToggle:"Reports",
+    selectCategory:"Category",
+    note:"Note",
+    pickLocation:"Pick location",
+    submitReport:"Submit report",
+    location:"Location",
+    reportSaved:"Report submitted.",
+    reportsLoading:"Loading reports…",
+    reportsErr:"Failed to load reports.",
+    savedRoutesHdr:"Saved routes (max 3)", save:"Save", load:"Load", del:"Del",
+    constraint:"Constraint < boat width",
+    
+    disclaimer:"Data: OpenStreetMap via Overpass. Verify local regulations & notices to mariners.",
+    ready:"Ready.", loading:"Loading canals & POIs…", overpassErr:"Overpass error. Zoom in or try again.",
+    geoBlocked:"Geolocation not supported.", geoErr:"Geolocation error: ",
+    noGraph:"No canal graph yet — zoom in to load waterways.",
+    noPath:"No path found along waterways.", routeComputed:"Route computed.",
+    saved:"Saved to", nothingSaved:"Nothing saved in that slot.", loaded:"Loaded route:",
+    saveFail:"Failed to load saved route.", deleted:"Deleted saved route in this slot.",
+    selStart:"Selection: click Start point on the map.", selFinish:"Selection: now click Destination.",
+    selCancelled:"Selection cancelled.", computing:"Computing route…",
+    buildingGraph:"Building canal graph…", routing:"Routing…",
+    showOnMap:"Show on Map:",
+    legendHint:"Click on points on the map to get more information.",
+    deleteReport:"Delete report",
+    reportCats:{
+      bridge_under_construction:"Bridge Under Construction",
+      bridge_closed:"Bridge Closed",
+      lock_out_of_service:"Lock Out of Service",
+      low_clearance:"Low Clearance",
+      waterway_closed:"Waterway Closed",
+      debris_hazard:"Debris/Hazard",
+      shallow_water:"Shallow Water",
+      temporary_speed_limit:"Temporary Speed Limit",
+      fuel_outage:"Fuel Outage",
+      marina_closed:"Marina Closed",
+      event_regatta:"Event/Regatta"
+    }
+  },
+  nl: {
+    title: "🚤 VaarApp <span class='badge'>beta</span>",
+    length:"Lengte (m)", width:"Breedte (m)", speed:"Snelheid (km/u)", follow:"Volg mij",
+    height:"Hoogte (m)", draught:"Diepgang (m)",
+    tabMain:"Hoofdmenu", tabBoat:"Mijn bootprofiel", tabSaved:"Opgeslagen routes", tabReports:"Meldingen",
+    waterways:"Waterwegen", locks:"Sluizen", bridges:"Bruggen", snap:"Kliks op kanaal vastzetten",
+    fuel:"Tankstations", docking:"Aanlegplaatsen",
+    locate:"Vind mijn locatie", select:"Kies Start/Bestemming", cancel:"Selectie annuleren",
+    simulate:"Simuleren", clear:"Route wissen",
+    reportsToggle:"Meldingen",
+    selectCategory:"Categorie",
+    note:"Notitie",
+    pickLocation:"Locatie kiezen",
+    submitReport:"Melding verzenden",
+    location:"Locatie",
+    reportSaved:"Melding verzonden.",
+    reportsLoading:"Meldingen laden…",
+    reportsErr:"Meldingen laden mislukt.",
+    savedRoutesHdr:"Opgeslagen routes (max 3)", save:"Opslaan", load:"Laden", del:"Verw.",
+    constraint:"Beperking < bootbreedte",
+    
+    disclaimer:"Data: OpenStreetMap via Overpass. Controleer altijd lokale regels en berichten aan zeevarenden.",
+    ready:"Klaar.", loading:"Kanalen & POI's laden…", overpassErr:"Overpass-fout. Zoom in of probeer opnieuw.",
+    geoBlocked:"Locatie niet ondersteund.", geoErr:"Locatiefout: ",
+    noGraph:"Nog geen kanaalgrafiek — zoom in om waterwegen te laden.",
+    noPath:"Geen pad gevonden via waterwegen.", routeComputed:"Route berekend.",
+    saved:"Opgeslagen naar", nothingSaved:"Niets opgeslagen in deze slot.", loaded:"Route geladen:",
+    saveFail:"Laden van opgeslagen route mislukt.", deleted:"Opgeslagen route verwijderd.",
+    selStart:"Selectie: klik Start op de kaart.", selFinish:"Selectie: klik nu Bestemming.",
+    selCancelled:"Selectie geannuleerd.", computing:"Route berekenen…",
+    buildingGraph:"Kanaalgrafiek opbouwen…", routing:"Routeberekening…",
+    showOnMap:"Toon op kaart:",
+    legendHint:"Klik op punten op de kaart voor meer informatie.",
+    deleteReport:"Melding verwijderen",
+    reportCats:{
+      bridge_under_construction:"Brug in aanbouw",
+      bridge_closed:"Brug gesloten",
+      lock_out_of_service:"Sluis buiten gebruik",
+      low_clearance:"Lage doorvaarthoogte",
+      waterway_closed:"Waterweg afgesloten",
+      debris_hazard:"Rommeligheid/Gevaar",
+      shallow_water:"Ondiep water",
+      temporary_speed_limit:"Tijdelijke snelheidsbeperking",
+      fuel_outage:"Brandstofstoring",
+      marina_closed:"Jachthaven gesloten",
+      event_regatta:"Evenement/Regatta"
+    }
+  }
+};
+let LANG = 'en';
+function applyI18N() {
+  const dict = I18N[LANG];
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const k = el.getAttribute('data-i18n');
+    el.innerHTML = dict[k] || el.innerHTML;
+  });
+  setStatus(dict.ready);
+}
+
+/* ======================= App ======================= */
+function initApp() {
+  const statusText = document.getElementById('statusText');
+  const routeStats = document.getElementById('routeStats');
+  const busy = document.getElementById('busy');
+  const routingPill = document.getElementById('routingPill');
+  const setBusy = (on) => busy.style.display = on ? 'inline-block' : 'none';
+  const setRouting = (on) => routingPill.style.display = on ? 'inline-block' : 'none';
+  window.setStatus = (m) => statusText.textContent = m;
+
+  // Panel toggle
+  const panel = document.getElementById('panel');
+  const panelToggle = document.getElementById('panelToggle');
+  function setPanelHidden(hidden){
+    panel.classList.toggle('hidden', hidden);
+    panelToggle.setAttribute('aria-pressed', String(hidden));
+  }
+  if (window.matchMedia('(max-width: 600px)').matches) setPanelHidden(true);
+  panelToggle.addEventListener('click', () => setPanelHidden(!panel.classList.contains('hidden')));
+  window.addEventListener('keydown', (e)=>{ if(e.key.toLowerCase()==='m') setPanelHidden(!panel.classList.contains('hidden')); });
+
+  // Language select
+  const langSel = document.getElementById('lang');
+  langSel.value = (localStorage.getItem('canalnav-lang') || 'en');
+  LANG = langSel.value;
+  langSel.addEventListener('change', () => {
+    LANG = langSel.value;
+    localStorage.setItem('canalnav-lang', LANG);
+    applyI18N();
+    populateReportCategories();
+    renderReports();
+  });
+  applyI18N();
+
+  // Supabase client (define early so initial refresh can use it)
+  const SUPABASE_URL = 'https://boqvponsrxneibgvjqri.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJvcXZwb25zcnhuZWliZ3ZqcXJpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY0MjIzNDMsImV4cCI6MjA3MTk5ODM0M30.COzREm9FmWU6mbcpdIaFsNrnIgJ8J6Pa1dAf-TRdKBA';
+  const supabase = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+  async function netListReports(){
+    if (!supabase) return null;
+    const { data, error } = await supabase.from('reports').select('*').order('ts', { ascending:false }).limit(1000);
+    if (error) { console.warn('Supabase list error', error); return null; }
+    return data?.map(r=>({ id:String(r.id||r.uuid||r.ts), lat:r.lat, lng:r.lng, category:r.category, note:r.note||'', ts:r.ts||Date.now(), mine:false }))||[];
+  }
+  async function netListVotes(){
+    if (!supabase) return null;
+    const { data, error } = await supabase.from('report_votes').select('report_id,vote').limit(50000);
+    if (error) { console.warn('Supabase votes list error', error); return null; }
+    return Array.isArray(data) ? data : [];
+  }
+  async function netCreateReport(rec){
+    if (!supabase) return false;
+    const payload = { lat: rec.lat, lng: rec.lng, category: rec.category, note: rec.note, ts: rec.ts };
+    const { data, error } = await supabase.from('reports').insert(payload).select();
+    if (error) { console.warn('Supabase insert error', error); return false; }
+    if (data && data[0]) { rec.id = String(data[0].id||data[0].uuid||rec.id); }
+    return true;
+  }
+  async function netDeleteReport(id){
+    if (!supabase) return false;
+    const { error } = await supabase.from('reports').delete().eq('id', id);
+    if (error) { console.warn('Supabase delete error', error); return false; }
+    return true;
+  }
+  async function netUpsertVote(reportId, deviceId, vote){
+    if (!supabase) return false;
+    try {
+      const { error } = await supabase
+        .from('report_votes')
+        .upsert({ report_id: reportId, device_id: deviceId, vote }, { onConflict: 'report_id,device_id' });
+      if (error) { console.warn('Supabase upsert vote error', error); return false; }
+      return true;
+    } catch(e){ console.warn('Supabase upsert vote error', e); return false; }
+  }
+
+  // Map
+  const map = L.map('map', { zoomControl: true }).setView([52.1, 5.3], 8);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+  L.control.scale({ metric: true, imperial: false }).addTo(map);
+  // High z-index pane for reports so dots aren't hidden on mobile
+  map.createPane('reportsPane');
+  map.getPane('reportsPane').style.zIndex = 700;
+
+  // Layers
+  const waterwaysLayer = L.geoJSON(null, { style: () => ({ color: '#3b82f6', weight: 2, opacity: 0.9 }) }).addTo(map);
+  const locksLayer = L.layerGroup().addTo(map);
+  const bridgesLayer = L.layerGroup().addTo(map);
+  const dockLayer = L.layerGroup().addTo(map);
+  const routeLayer = L.layerGroup().addTo(map);
+  const selectionLayer = L.layerGroup().addTo(map);
+  const reportsLayer = L.layerGroup().addTo(map);
+  const draftLayer = L.layerGroup().addTo(map);
+
+  // State
+  const state = {
+    boat: { length: 5, width: 1.5, speedKmh: 7 },
+    follow: false,
+    meMarker: null,
+    geowatchId: null,
+    fetched: { w: new Set(), p: new Set(), fd: new Set() },
+    cacheMem: new Map(), // tileKey -> json
+    graph: { nextId: 1, nodes: new Map(), coords: new Map(), adj: new Map(), segments: [] },
+    route: null,
+    sim: { anim: null, marker: null },
+    selection: { active: false,
+      start: null, finish: null,
+      startRaw: null, finishRaw: null,
+      startM: null, finishM: null,
+      startRawM: null, finishRawM: null,
+      startLink: null, finishLink: null },
+  };
+
+  // ===== UI hooks
+  const $ = s => document.querySelector(s);
+  const boatLength = $('#boatLength');
+  const boatWidth  = $('#boatWidth');
+  const boatSpeed  = $('#boatSpeed');
+  const boatHeight = $('#boatHeight');
+  const boatDraught= $('#boatDraught');
+  const locateBtn  = $('#locateBtn');
+  const clearBtn   = $('#clearBtn');
+  const simulateBtn= $('#simulateBtn');
+  const selectBtn  = $('#selectBtn');
+  const cancelSelBtn = $('#cancelSelBtn');
+  const toggleWaterways = $('#toggleWaterways');
+  const toggleLocks = $('#toggleLocks');
+  const toggleBridges = $('#toggleBridges');
+  const toggleDock = $('#toggleDock');
+  const toggleReports = $('#toggleReports');
+  
+  // Tabs
+  const tabMainBtn = document.getElementById('tabMainBtn');
+  const tabBoatBtn = document.getElementById('tabBoatBtn');
+  const tabSavedBtn= document.getElementById('tabSavedBtn');
+  const tabReportsBtn= document.getElementById('tabReportsBtn');
+  const tabMain    = document.getElementById('tabMain');
+  const tabBoat    = document.getElementById('tabBoat');
+  const tabSaved   = document.getElementById('tabSaved');
+  const tabReports = document.getElementById('tabReports');
+
+  // Slots
+  const slots = [
+    { nameInput: $('#slotName1'), save: $('#save1'), load: $('#load1'), del: $('#del1'), key: 'routeSlot1' },
+    { nameInput: $('#slotName2'), save: $('#save2'), load: $('#load2'), del: $('#del2'), key: 'routeSlot2' },
+    { nameInput: $('#slotName3'), save: $('#save3'), load: $('#load3'), del: $('#del3'), key: 'routeSlot3' }
+  ];
+  // Load slot names
+  slots.forEach(s => { const raw = localStorage.getItem(s.key); if (raw) { try { const o = JSON.parse(raw); if (o?.name) s.nameInput.value = o.name; } catch {} } });
+
+  boatLength.addEventListener('input', () => { state.boat.length = +boatLength.value; restylePOIs(); });
+  boatWidth .addEventListener('input', () => { state.boat.width  = +boatWidth.value;  restylePOIs(); });
+  boatSpeed .addEventListener('input', () => { state.boat.speedKmh = +boatSpeed.value; updateRouteStats(); });
+  boatHeight.addEventListener('input', () => { state.boat.heightM = +boatHeight.value; });
+  boatDraught.addEventListener('input', () => { state.boat.draughtM = +boatDraught.value; });
+  // removed followMe UI
+
+  locateBtn.addEventListener('click', startLocate);
+  clearBtn .addEventListener('click', clearRoute);
+  simulateBtn.addEventListener('click', toggleSimulation);
+  selectBtn.addEventListener('click', startSelect);
+  cancelSelBtn.addEventListener('click', cancelSelect);
+
+  toggleWaterways.addEventListener('change', () => toggleLayer(toggleWaterways, waterwaysLayer));
+  toggleLocks    .addEventListener('change', () => toggleLayer(toggleLocks, locksLayer));
+  toggleBridges  .addEventListener('change', () => toggleLayer(toggleBridges, bridgesLayer));
+  toggleDock     .addEventListener('change', () => toggleLayer(toggleDock, dockLayer));
+  function toggleLayer(ctrl, layer) { ctrl.checked ? layer.addTo(map) : map.removeLayer(layer); }
+
+  slots.forEach(s => {
+    s.save.addEventListener('click', () => saveRouteToSlot(s));
+    s.load.addEventListener('click', () => loadRouteFromSlot(s));
+    s.del .addEventListener('click', () => deleteRouteSlot(s));
+  });
+
+  // Reports UI hooks
+  const reportCategory = document.getElementById('reportCategory');
+  const reportNote = document.getElementById('reportNote');
+  const pickReportBtn = document.getElementById('pickReportBtn');
+  const submitReportBtn = document.getElementById('submitReportBtn');
+  const reportLocText = document.getElementById('reportLocText');
+  const reportsList = document.getElementById('reportsList');
+  const reportsCounts = document.getElementById('reportsCounts');
+
+  const REPORTS_KEY = 'vaarapp-reports-v2';
+  const OWNED_KEY = 'vaarapp-owned-report-ids';
+  const VOTE_KEY = 'vaarapp-report-votes';
+  const DEVICE_KEY = 'vaarapp-device-id';
+  let reportsMem = [];
+  let reportDraft = { latlng: null, marker: null };
+  function getOwnedIds(){ try { const a = JSON.parse(localStorage.getItem(OWNED_KEY)||'[]'); return Array.isArray(a)? new Set(a) : new Set(); } catch { return new Set(); } }
+  function setOwnedIds(set){ try { localStorage.setItem(OWNED_KEY, JSON.stringify(Array.from(set))); } catch {} }
+  const ownedIds = getOwnedIds();
+  function getVotesMap(){ try { const o = JSON.parse(localStorage.getItem(VOTE_KEY)||'{}'); return (o && typeof o==='object')? o : {}; } catch { return {}; } }
+  function setVotesMap(m){ try { localStorage.setItem(VOTE_KEY, JSON.stringify(m)); } catch {} }
+  const votesMap = getVotesMap();
+  function getDeviceId(){
+    try { let id = localStorage.getItem(DEVICE_KEY); if (!id) { id = (Date.now().toString(36)+Math.random().toString(36).slice(2,10)); localStorage.setItem(DEVICE_KEY, id); } return id; } catch { return 'anon'; }
+  }
+  const deviceId = getDeviceId();
+
+  function getStoredReports(){
+    try {
+      const raw = localStorage.getItem(REPORTS_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      const out = Array.isArray(arr) ? arr : [];
+      reportsMem = out;
+      return out;
+    } catch {
+      return reportsMem;
+    }
+  }
+  function setStoredReports(arr){
+    try {
+      const safe = Array.isArray(arr) ? arr : [];
+      localStorage.setItem(REPORTS_KEY, JSON.stringify(safe));
+      reportsMem = safe;
+    } catch {
+      reportsMem = Array.isArray(arr) ? arr : [];
+    }
+  }
+  function addReport(r){
+    reportsMem = Array.isArray(reportsMem) ? reportsMem : [];
+    reportsMem.push(r);
+    setStoredReports(reportsMem);
+  }
+  function renderReports(){
+    reportsLayer.clearLayers();
+    const arr = (Array.isArray(reportsMem) && reportsMem.length) ? reportsMem : getStoredReports();
+    if (reportsCounts) {
+      const remoteNote = window.supabase ? '' : ' (offline)';
+      reportsCounts.textContent = `Showing ${arr.length} reports${remoteNote}`;
+    }
+    // list in Reports tab
+    if (reportsList) {
+      const dict = I18N[LANG];
+      reportsList.innerHTML = arr.map(r=>{
+        const label = (dict.reportCats && dict.reportCats[r.category]) ? dict.reportCats[r.category] : r.category;
+        const loc = `${r.lat.toFixed(5)}, ${r.lng.toFixed(5)}`;
+        const delBtn = (r.mine===true || ownedIds.has(String(r.id))) ? `<button data-del-report-list="${r.id}" class="warn" style="padding:2px 6px;margin-left:8px;">${dict.deleteReport||'Delete report'}</button>` : '';
+        return `<div style="display:flex;align-items:center;gap:8px;margin:4px 0;">
+          <span style="font-weight:700;">${label}</span>
+          <span>${loc}</span>
+          <span style="opacity:.7;">${new Date(r.ts).toLocaleString()}</span>
+          ${delBtn}
+        </div>`;
+      }).join('');
+      // attach delete handlers
+      reportsList.querySelectorAll('[data-del-report-list]').forEach(btn=>{
+        btn.addEventListener('click', async ()=>{
+          const id = btn.getAttribute('data-del-report-list');
+          try { await netDeleteReport(id); } catch {}
+          const list = getStoredReports().filter(x=>String(x.id)!==String(id));
+          setStoredReports(list);
+          await refreshReportsOnce();
+        });
+      });
+    }
+    for (const r of arr) {
+      const icon = L.divIcon({ className:'', html:'<div style="font-size:18px;line-height:18px;">⚠️</div>', iconSize:[18,18], iconAnchor:[9,9] });
+      const m = L.marker([r.lat, r.lng], { icon, pane: 'reportsPane', zIndexOffset: 1200 });
+      const dict = I18N[LANG];
+      const label = (dict.reportCats && dict.reportCats[r.category]) ? dict.reportCats[r.category] : r.category;
+      const canDel = (r.mine===true || ownedIds.has(String(r.id)));
+      const up = (r.up_count||0), down=(r.down_count||0);
+      const html = `<div><strong>${label}</strong>${r.note?`<div>${r.note}</div>`:''}<div>${new Date(r.ts).toLocaleString()}</div>` +
+        `<div style=\"margin-top:6px;display:flex;gap:8px;align-items:center;\">`+
+        `<button data-vote-up=\"${r.id}\" class=\"ghost\" style=\"padding:4px 8px;\">👍 <span data-up-count> ${up}</span></button>`+
+        `<button data-vote-down=\"${r.id}\" class=\"ghost\" style=\"padding:4px 8px;\">👎 <span data-down-count> ${down}</span></button>`+
+        `${canDel?`<button data-del-report=\"${r.id}\" class=\"warn\" style=\"padding:4px 8px;\">${dict.deleteReport||'Delete report'}</button>`:''}`+
+        `</div></div>`;
+      m.on('popupopen', (ev)=>{
+        const root = ev.popup._contentNode;
+        const delBtn = root.querySelector('[data-del-report]');
+        if (delBtn) {
+          delBtn.addEventListener('click', async ()=>{
+            const id = delBtn.getAttribute('data-del-report');
+            try { await netDeleteReport(id); } catch {}
+            const list = getStoredReports().filter(x=>String(x.id)!==String(id));
+            setStoredReports(list);
+            await refreshReportsOnce();
+            map.closePopup();
+          });
+        }
+        async function applyVote(id, type){
+          const prev = votesMap[id]||null;
+          if (prev === type) return;
+          let deltaUp = 0, deltaDown = 0;
+          if (!prev && type==='up') deltaUp = 1; else if (!prev && type==='down') deltaDown = 1;
+          else if (prev==='up' && type==='down') { deltaUp = -1; deltaDown = 1; }
+          else if (prev==='down' && type==='up') { deltaDown = -1; deltaUp = 1; }
+          votesMap[id] = type; setVotesMap(votesMap);
+          for (const it of reportsMem){ if (String(it.id)===String(id)) { it.up_count = (it.up_count||0)+deltaUp; it.down_count=(it.down_count||0)+deltaDown; break; } }
+          const upEl = root.querySelector('[data-up-count]'); if (upEl) { const cur = parseInt(upEl.textContent)||0; const nxt = Math.max(0, cur + deltaUp); upEl.textContent = ' ' + nxt; }
+          const dnEl = root.querySelector('[data-down-count]'); if (dnEl) { const cur = parseInt(dnEl.textContent)||0; const nxt = Math.max(0, cur + deltaDown); dnEl.textContent = ' ' + nxt; }
+          try { await netUpsertVote(id, deviceId, type); } catch {}
+        }
+        const upBtn = root.querySelector('[data-vote-up]'); if (upBtn) upBtn.addEventListener('click', (ev)=>{ ev.preventDefault(); ev.stopPropagation(); upBtn.disabled = true; applyVote(upBtn.getAttribute('data-vote-up'), 'up').finally(()=>{ setTimeout(()=>{ upBtn.disabled=false; }, 200); }); });
+        const dnBtn = root.querySelector('[data-vote-down]'); if (dnBtn) dnBtn.addEventListener('click', (ev)=>{ ev.preventDefault(); ev.stopPropagation(); dnBtn.disabled = true; applyVote(dnBtn.getAttribute('data-vote-down'), 'down').finally(()=>{ setTimeout(()=>{ dnBtn.disabled=false; }, 200); }); });
+      });
+      m.bindPopup(html);
+      reportsLayer.addLayer(m);
+    }
+  }
+
+  function setReportsVisible(on){ if (on) { reportsLayer.addTo(map); renderReports(); } else { map.removeLayer(reportsLayer); } }
+  async function refreshReportsOnce(){
+    try {
+      const remote = await netListReports();
+      const votes = await netListVotes();
+      if (remote && Array.isArray(remote)) {
+        // reduce votes into counts per report_id
+        const upCounts = new Map(), downCounts = new Map();
+        if (Array.isArray(votes)) {
+          for (const v of votes) {
+            const rid = String(v.report_id);
+            if (v.vote === 'up') upCounts.set(rid, (upCounts.get(rid)||0)+1);
+            else if (v.vote === 'down') downCounts.set(rid, (downCounts.get(rid)||0)+1);
+          }
+        }
+        for (const r of remote) { const k = String(r.id); r.up_count = upCounts.get(k)||0; r.down_count = downCounts.get(k)||0; }
+        reportsMem = remote; setStoredReports(reportsMem); renderReports();
+      }
+    } catch(e){ console.warn('Refresh reports failed', e); }
+  }
+  toggleReports.addEventListener('change', async () => {
+    const on = toggleReports.checked;
+    setReportsVisible(on);
+    if (on) { await refreshReportsOnce(); }
+  });
+  setReportsVisible(true);
+  // Force refresh on startup for iOS browsers that may ignore initial toggle state
+  refreshReportsOnce();
+  renderReports();
+  // keep draft marker visible regardless of toggle
+  if (draftLayer) draftLayer.addTo(map);
+
+  // Initial load + two-way sync with Supabase (if available)
+  (async () => {
+    try {
+      const remote = await netListReports();
+      const local = getStoredReports();
+      if (remote && Array.isArray(remote)) {
+        const byKey = new Map();
+        const makeKey = (r)=> String(r.id||`${Number(r.lat).toFixed(5)}|${Number(r.lng).toFixed(5)}|${r.category}|${r.ts}`);
+        for (const r of remote) byKey.set(makeKey(r), r);
+        for (const r of local) if (!byKey.has(makeKey(r))) byKey.set(makeKey(r), r);
+        const merged = Array.from(byKey.values());
+        reportsMem = merged;
+        setStoredReports(merged);
+        renderReports();
+        // backfill: try to push any local-only reports to remote
+        for (const r of merged) {
+          const key = makeKey(r);
+          const inRemote = remote.some(x => makeKey(x) === key);
+          if (!inRemote) { try { await netCreateReport(r); } catch {} }
+        }
+      } else {
+        // remote not available — keep local only
+        reportsMem = local;
+        renderReports();
+      }
+    } catch(e){ console.warn('Failed to sync remote reports', e); renderReports(); }
+  })();
+
+  function populateReportCategories(){
+    const sel = reportCategory; sel.innerHTML = '';
+    const cats = [
+      'bridge_under_construction','bridge_closed','lock_out_of_service','low_clearance','waterway_closed','debris_hazard','shallow_water','temporary_speed_limit','fuel_outage','marina_closed','event_regatta'
+    ];
+    for (const c of cats) {
+      const opt = document.createElement('option');
+      opt.value = c;
+      const dict = I18N[LANG];
+      opt.textContent = (dict.reportCats && dict.reportCats[c]) ? dict.reportCats[c] : c;
+      sel.appendChild(opt);
+    }
+  }
+  populateReportCategories();
+
+  function updateReportUI(){
+    if (reportDraft.latlng) {
+      reportLocText.textContent = `${reportDraft.latlng.lat.toFixed(5)}, ${reportDraft.latlng.lng.toFixed(5)}`;
+      submitReportBtn.disabled = false;
+    } else {
+      reportLocText.textContent = '—';
+      submitReportBtn.disabled = true;
+    }
+  }
+  function setReportMarker(ll){
+    if (reportDraft.marker) { try { draftLayer.removeLayer(reportDraft.marker); } catch {} }
+    const icon = L.divIcon({ className:'', html:'<div style="width:12px;height:12px;border-radius:50%;background:#8b5cf6;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3);"></div>', iconSize:[12,12] });
+    reportDraft.marker = L.marker(ll, { icon, zIndexOffset: 1400 }).addTo(draftLayer);
+    if (draftLayer.bringToFront) draftLayer.bringToFront();
+  }
+  submitReportBtn.addEventListener('click', async () => {
+    if (!reportDraft.latlng) return;
+    const rec = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2,7),
+      lat: reportDraft.latlng.lat,
+      lng: reportDraft.latlng.lng,
+      category: reportCategory.value,
+      note: (reportNote.value||'').trim(),
+      ts: Date.now(),
+      mine: true
+    };
+    ownedIds.add(String(rec.id)); setOwnedIds(ownedIds);
+    // Try remote first but update UI immediately regardless
+    addReport(rec);
+    renderReports();
+    try { await netCreateReport(rec); } catch {}
+    // Ensure layer is visible so user sees it immediately
+    setReportsVisible(true);
+    // clear draft
+    reportDraft.latlng = null;
+    if (reportDraft.marker) { try { draftLayer.removeLayer(reportDraft.marker); } catch {} reportDraft.marker = null; }
+    reportNote.value = '';
+    updateReportUI();
+    setStatus(I18N[LANG].reportSaved || 'Report submitted.');
+  });
+
+  // Tab switching
+  function activateTab(which){
+    const mapTabs = { main:[tabMainBtn, tabMain], boat:[tabBoatBtn, tabBoat], saved:[tabSavedBtn, tabSaved], reports:[tabReportsBtn, tabReports] };
+    for (const key of Object.keys(mapTabs)) { const [btn, pane] = mapTabs[key]; btn.setAttribute('aria-selected','false'); pane.classList.remove('active'); }
+    const [btn, pane] = mapTabs[which]; btn.setAttribute('aria-selected','true'); pane.classList.add('active');
+    if (which === 'reports') { renderReports(); }
+  }
+  tabMainBtn.addEventListener('click', () => activateTab('main'));
+  tabBoatBtn.addEventListener('click', () => activateTab('boat'));
+  tabSavedBtn.addEventListener('click', () => activateTab('saved'));
+  tabReportsBtn.addEventListener('click', () => { activateTab('reports'); updateReportUI(); });
+
+  map.on('click', onMapClick);
+
+  /* ---------- Geolocation ---------- */
+  function startLocate() {
+    if (!('geolocation' in navigator)) { setStatus(I18N[LANG].geoBlocked); return; }
+    if (state.geowatchId !== null) { navigator.geolocation.clearWatch(state.geowatchId); }
+    state.geowatchId = navigator.geolocation.watchPosition(
+      pos => {
+        const ll = [pos.coords.latitude, pos.coords.longitude];
+        if (!state.meMarker) state.meMarker = L.marker(ll, { title: 'You', zIndexOffset: 1000 }).addTo(map);
+        else state.meMarker.setLatLng(ll);
+        setStatus(`GPS: ${ll[0].toFixed(5)}, ${ll[1].toFixed(5)} (±${Math.round(pos.coords.accuracy)} m)`);
+        // follow removed
+      },
+      err => setStatus(I18N[LANG].geoErr + err.message),
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+    );
+  }
+
+  /* ---------- Overpass + caching ---------- */
+  const OVERPASS = [
+    'https://overpass-api.de/api/interpreter',
+    'https://lz4.overpass-api.de/api/interpreter',
+    'https://z.overpass-api.de/api/interpreter'
+  ];
+  const TTL_MS = 24 * 3600 * 1000; // 24h
+  function tileKeyFromBounds(b) {
+    const step = 0.05; // ~5.5 km grid
+    const s = Math.floor(b.getSouth() / step) * step;
+    const w = Math.floor(b.getWest()  / step) * step;
+    const n = Math.ceil (b.getNorth() / step) * step;
+    const e = Math.ceil (b.getEast()  / step) * step;
+    return [s,w,n,e].join(',');
+  }
+  function bboxString(b) { return `${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`; }
+  function qWaterways(b) {
+    const bbox = bboxString(b);
+    return `[
+      out:json][timeout:30];
+      way["waterway"~"^(canal|river|stream|drain|ditch)$"](${bbox});
+      out tags geom;`;
+  }
+  function qLocksBridges(b) {
+    const bbox = bboxString(b);
+    return `[
+      out:json][timeout:30];(
+        node["waterway"="lock_gate"](${bbox});
+        way["waterway"="lock_gate"](${bbox});
+        node["lock"="yes"](${bbox});
+        way["lock"="yes"](${bbox});
+        way["bridge"](${bbox});
+      ); out tags center;`;
+  }
+  function qFuelDock(b) {
+    const bbox = bboxString(b);
+    return `[
+      out:json][timeout:40];(
+        node["leisure"="marina"](${bbox});
+        way["leisure"="marina"](${bbox});
+        node["seamark:type"="harbour"]["seamark:harbour:category"~"marina|yacht_harbour"](${bbox});
+        node["tourism"="hotel"]["mooring"="yes"](${bbox});
+        node["mooring"="yes"](${bbox});
+        way["mooring"="yes"](${bbox});
+        node["seamark:type"="pontoon"](${bbox});
+      ); out tags center;`;
+  }
+  function cacheGet(ns, key) {
+    const k = `canalnav:${ns}:${key}`;
+    if (state.cacheMem.has(k)) return state.cacheMem.get(k);
+    const raw = localStorage.getItem(k);
+    if (!raw) return null;
+    try { const o = JSON.parse(raw); if (Date.now() - o.t > TTL_MS) { localStorage.removeItem(k); return null; } state.cacheMem.set(k, o.v); return o.v; } catch { return null; }
+  }
+  function cacheSet(ns, key, val) {
+    const k = `canalnav:${ns}:${key}`, o = { t: Date.now(), v: val };
+    state.cacheMem.set(k, val); try { localStorage.setItem(k, JSON.stringify(o)); } catch {}
+  }
+  async function fetchOverpass(query, nsKey) {
+    const cached = cacheGet('overpass', nsKey);
+    if (cached) return cached;
+    for (const url of OVERPASS) {
+      try {
+        const res = await fetch(url, { method: 'POST', body: query, headers: { 'Content-Type': 'text/plain;charset=UTF-8' } });
+        if (!res.ok) throw new Error(await res.text());
+        const json = await res.json();
+        cacheSet('overpass', nsKey, json);
+        return json;
+      } catch (e) { /* try next */ }
+    }
+    throw new Error('All Overpass endpoints failed.');
+  }
+
+  // Geometry thinning: keep points ≥ MIN_M apart to reduce graph size
+  const MIN_M = 15;
+  function thinCoordsLonLat(coordsLonLat) {
+    if (coordsLonLat.length <= 2) return coordsLonLat;
+    const out = [coordsLonLat[0]];
+    let last = [coordsLonLat[0][1], coordsLonLat[0][0]]; // lat,lon
+    for (let i = 1; i < coordsLonLat.length - 1; i++) {
+      const cur = [coordsLonLat[i][1], coordsLonLat[i][0]];
+      if (haversine(last, cur) >= MIN_M) { out.push(coordsLonLat[i]); last = cur; }
+    }
+    out.push(coordsLonLat[coordsLonLat.length - 1]);
+    return out;
+  }
+
+  function renderWaterways(data) {
+    const features = [];
+    for (const el of (data.elements || [])) {
+      if (el.type === 'way' && el.geometry) {
+        const coords = el.geometry.map(g => [g.lon, g.lat]);
+        const thinned = thinCoordsLonLat(coords);
+        features.push({ type:'Feature', geometry:{ type:'LineString', coordinates: thinned }, properties: el.tags || {} });
+      }
+    }
+    waterwaysLayer.addData({ type:'FeatureCollection', features });
+    setBusy(true); setStatus(I18N[LANG].buildingGraph);
+    // Build graph in chunks to keep UI responsive, return a Promise to await completion when needed
+    return new Promise((resolve) => {
+      setTimeout(() => { buildGraphFromFeatures(features).then(() => { setBusy(false); setStatus(I18N[LANG].ready); resolve(); }); }, 0);
+    });
+  }
+
+  function renderPOIs(data) {
+    locksLayer.clearLayers(); bridgesLayer.clearLayers();
+    const boatW = state.boat.width;
+    const wantLocks = !!(typeof toggleLocks !== 'undefined' && toggleLocks && toggleLocks.checked);
+    const wantBridges = !!(typeof toggleBridges !== 'undefined' && toggleBridges && toggleBridges.checked);
+    for (const el of (data.elements || [])) {
+      let lat, lon, tags = el.tags || {};
+      if (el.type === 'node') { lat = el.lat; lon = el.lon; }
+      else if (el.type === 'way' && el.center) { lat = el.center.lat; lon = el.center.lon; }
+      else continue;
+
+      let kind = (tags.waterway === 'lock_gate' || tags.lock === 'yes') ? 'lock' : 'bridge';
+
+      if (kind === 'lock' && !wantLocks) continue;
+      if (kind === 'bridge' && !wantBridges) continue;
+
+      const wTags = ['maxwidth','boat:width','maxbeam'];
+      let limitWidth = null;
+      for (const k of wTags) if (tags[k]) { const v = parseFloat(String(tags[k]).replace(/[^0-9.]/g,'')); if (!isNaN(v)) { limitWidth = v; break; } }
+      const constrained = limitWidth !== null && boatW > limitWidth;
+      const color = kind === 'lock' ? (constrained ? '#ef4444' : '#fb923c') : (constrained ? '#ef4444' : '#10b981');
+
+      let marker;
+      if (kind === 'lock') {
+        const emoji = '🚦';
+        marker = L.marker([lat, lon], { icon: L.divIcon({ className:'', html:`<div style="font-size:16px;line-height:16px;">${emoji}</div>`, iconSize:[16,16], iconAnchor:[8,8] }) });
+      } else {
+        marker = L.circleMarker([lat, lon], { radius: 6, color: '#10b981', weight: 2, fillOpacity: 0.8 });
+      }
+      const title = kind === 'lock' ? 'Lock' : 'Bridge';
+      const details = Object.entries(tags).map(([k,v]) => `<div><strong>${k}</strong>: ${v}</div>`).slice(0, 20).join('');
+      const constraintTxt = limitWidth ? `<div><em>Width limit:</em> ${limitWidth} m</div>` : '';
+
+      // Contact info (phone/website/email) + fallback app/site
+      function sanitizeTel(v){ return String(v).replace(/[^0-9+]/g,''); }
+      const phoneKeys = ['contact:phone','phone','phone:mobile'];
+      const siteKeys  = ['contact:website','website','url'];
+      const mailKeys  = ['contact:email','email'];
+      const phones = phoneKeys.map(k=>tags[k]).filter(Boolean);
+      const sites  = siteKeys .map(k=>tags[k]).filter(Boolean);
+      const mails  = mailKeys .map(k=>tags[k]).filter(Boolean);
+      let contactHTML = '';
+      if (phones.length) contactHTML += phones.map(p=>`<div><strong>Phone</strong>: <a href="tel:${sanitizeTel(p)}">${p}</a></div>`).join('');
+      if (sites.length)  contactHTML += sites.map(u=>`<div><strong>Website</strong>: <a href="${u}" target="_blank" rel="noopener">${u}</a></div>`).join('');
+      if (mails.length)  contactHTML += mails.map(m=>`<div><strong>Email</strong>: <a href="mailto:${m}">${m}</a></div>`).join('');
+      contactHTML += `<div><strong>More info</strong>: <a href="https://vaarweginformatie.nl/" target="_blank" rel="noopener">Vaarweginformatie</a></div>`;
+
+      marker.bindPopup(`<div><strong>${title}</strong>${constraintTxt}${contactHTML}${details}</div>`);
+      (kind === 'lock' ? locksLayer : bridgesLayer).addLayer(marker);
+    }
+  }
+
+  function renderFuelDock(data) {
+    dockLayer.clearLayers();
+    for (const el of (data.elements || [])) {
+      let lat, lon, tags = el.tags || {};
+      if (el.type === 'node') { lat = el.lat; lon = el.lon; }
+      else if (el.type === 'way' && el.center) { lat = el.center.lat; lon = el.center.lon; }
+      else continue;
+
+      const harbourCats = String(tags['seamark:harbour:category']||'');
+      const isDock = tags.mooring === 'yes' || tags.leisure === 'marina' || tags['seamark:type'] === 'pontoon' || /marina|yacht_harbour/.test(harbourCats);
+      const color = '#6b7280';
+      if (!isDock) continue;
+      const marker = L.marker([lat, lon], { icon: L.divIcon({ className:'', html:'<div style="font-size:16px;line-height:16px;">⚓</div>', iconSize:[16,16], iconAnchor:[8,8] }) });
+      const title = 'Docking';
+      const details = Object.entries(tags).map(([k,v]) => `<div><strong>${k}</strong>: ${v}</div>`).slice(0, 20).join('');
+      marker.bindPopup(`<div><strong>${title}</strong>${details}</div>`);
+      dockLayer.addLayer(marker);
+    }
+  }
+
+  // Helper: create a minimal Leaflet-like bounds from south, west, north, east
+  function boundsFromSWNE(s, w, n, e) { return { getSouth: () => s, getWest: () => w, getNorth: () => n, getEast: () => e }; }
+
+  // Prefetch waterways for a padded start–finish corridor to avoid manual panning
+  async function prefetchWaterwaysForCorridor(startLL, endLL, pad = 0.12) {
+    // default pad ~13 km; callers can increase if needed
+    let s = Math.min(startLL.lat, endLL.lat) - pad;
+    let w = Math.min(startLL.lng, endLL.lng) - pad;
+    let n = Math.max(startLL.lat, endLL.lat) + pad;
+    let e = Math.max(startLL.lng, endLL.lng) + pad;
+    s = Math.max(-90, s); n = Math.min(90, n); w = Math.max(-180, w); e = Math.min(180, e);
+
+    const bigB = boundsFromSWNE(s, w, n, e);
+    try {
+      const key = `corr:${[s, w, n, e].map(v => v.toFixed(3)).join(',')}`;
+      const wdata = await fetchOverpass(qWaterways(bigB), `w:${key}`);
+      await renderWaterways(wdata);
+      return;
+    } catch (err) {
+      // Fallback: split into smaller tiles if the bbox is too large for Overpass
+      const step = 0.25; // ~28 km tiles
+      const tasks = [];
+      for (let lat = s; lat < n; lat = Math.min(n, lat + step)) {
+        for (let lon = w; lon < e; lon = Math.min(e, lon + step)) {
+          const s2 = lat, w2 = lon, n2 = Math.min(n, lat + step), e2 = Math.min(e, lon + step);
+          const b = boundsFromSWNE(s2, w2, n2, e2);
+          const key2 = `corr:${[s2, w2, n2, e2].map(v => v.toFixed(3)).join(',')}`;
+          tasks.push((async () => {
+            try { const wdata2 = await fetchOverpass(qWaterways(b), `w:${key2}`); await renderWaterways(wdata2); } catch {}
+          })());
+        }
+      }
+      await Promise.allSettled(tasks);
+    }
+  }
+
+  let fetchTimer = null;
+  map.on('moveend zoomend', () => {
+    // Ensure layers reflect toggles immediately (avoid stale visibility)
+    if (!toggleLocks.checked) { locksLayer.clearLayers(); try { map.removeLayer(locksLayer); } catch {} }
+    else { try { locksLayer.addTo(map); } catch {} }
+    if (!toggleBridges.checked) { bridgesLayer.clearLayers(); try { map.removeLayer(bridgesLayer); } catch {} }
+    else { try { bridgesLayer.addTo(map); } catch {} }
+    if (!document.getElementById('toggleDock').checked) { dockLayer.clearLayers(); try { map.removeLayer(dockLayer); } catch {} }
+    else { try { dockLayer.addTo(map); } catch {} }
+    if (!toggleWaterways.checked && !toggleLocks.checked && !toggleBridges.checked && !document.getElementById('toggleDock').checked) return;
+    if (map.getZoom() < 12) return;
+    const key = tileKeyFromBounds(map.getBounds());
+    if (toggleWaterways.checked && state.fetched.w.has(key)
+      && (toggleLocks.checked || toggleBridges.checked) && state.fetched.p.has(key)
+      && (document.getElementById('toggleDock').checked) && state.fetched.fd.has(key)) return;
+    if (fetchTimer) clearTimeout(fetchTimer);
+    fetchTimer = setTimeout(async () => {
+      try {
+        setBusy(true); setStatus(I18N[LANG].loading);
+        if (toggleWaterways.checked) {
+          const w = await fetchOverpass(qWaterways(map.getBounds()), `w:${key}`);
+          await renderWaterways(w);
+          state.fetched.w.add(key);
+        }
+        if (toggleLocks.checked || toggleBridges.checked) {
+          const p = await fetchOverpass(qLocksBridges(map.getBounds()), `p:${key}`);
+          renderPOIs(p);
+          state.fetched.p.add(key);
+        }
+        if (document.getElementById('toggleDock').checked) {
+          const fd = await fetchOverpass(qFuelDock(map.getBounds()), `fd:${key}`);
+          renderFuelDock(fd);
+          state.fetched.fd.add(key);
+        }
+        setBusy(false); setStatus(I18N[LANG].ready);
+      } catch (e) { console.error(e); setBusy(false); setStatus(I18N[LANG].overpassErr); }
+    }, 200);
+  });
+
+  function restylePOIs() {
+    state.fetched = { w:new Set(), p:new Set(), fd:new Set() };
+    locksLayer.clearLayers(); bridgesLayer.clearLayers();
+    dockLayer.clearLayers();
+    map.fire('moveend');
+  }
+
+  /* ---------- Graph & nearest ---------- */
+  const R = 6371000, toRad = d => d * Math.PI / 180;
+  function haversine(a, b) {
+    const [lat1, lon1] = a, [lat2, lon2] = b;
+    const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+    const s = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+    return 2 * R * Math.asin(Math.sqrt(s));
+  }
+  function nearestPointOnSegment(p, a, b) {
+    const toXY = ([lat, lon]) => [lon, lat];
+    const A = toXY(a), B = toXY(b), P = toXY(p);
+    const AB = [B[0]-A[0], B[1]-A[1]], AP = [P[0]-A[0], P[1]-A[1]];
+    const ab2 = AB[0]*AB[0] + AB[1]*AB[1];
+    const t = ab2 ? Math.max(0, Math.min(1, (AP[0]*AB[0]+AP[1]*AB[1]) / ab2)) : 0;
+    const Q = [A[0]+t*AB[0], A[1]+t*AB[1]];
+    return [Q[1], Q[0], t];
+  }
+  function graphAddNode(lat, lon) {
+    const key = `${lat.toFixed(6)},${lon.toFixed(6)}`;
+    if (state.graph.nodes.has(key)) return state.graph.nodes.get(key);
+    const id = state.graph.nextId++;
+    state.graph.nodes.set(key, id);
+    state.graph.coords.set(id, [lat, lon]);
+    state.graph.adj.set(id, []);
+    return id;
+  }
+  function graphAddEdge(idA, idB) {
+    const a = state.graph.coords.get(idA), b = state.graph.coords.get(idB);
+    const d = haversine(a, b);
+    state.graph.adj.get(idA).push([idB, d]);
+    state.graph.adj.get(idB).push([idA, d]);
+    state.graph.segments.push({ a, b, idA, idB });
+  }
+  function buildGraphFromFeatures(features) {
+    // Build in small batches to keep UI smooth
+    return new Promise((resolve) => {
+      const BATCH = 200;
+      let i = 0;
+      function step() {
+        const end = Math.min(features.length, i + BATCH);
+        for (; i < end; i++) {
+          const f = features[i];
+          if (!f.geometry || f.geometry.type !== 'LineString') continue;
+          const coords = f.geometry.coordinates; // [lon,lat]
+          let prevId = null;
+          for (let j = 0; j < coords.length; j++) {
+            const lat = coords[j][1], lon = coords[j][0];
+            const id = graphAddNode(lat, lon);
+            if (prevId !== null) graphAddEdge(prevId, id);
+            prevId = id;
+          }
+        }
+        if (i < features.length) setTimeout(step, 0);
+        else resolve();
+      }
+      step();
+    });
+  }
+  function findNearestGraphNode(latlng, snap=true) {
+    let target = [latlng.lat, latlng.lng];
+    let nearest = { dist: Infinity, id: null, proj: target, idA:null, idB:null };
+    if (snap && state.graph.segments.length) {
+      // Scan segments (could be further optimized with spatial index)
+      for (const seg of state.graph.segments) {
+        const proj = nearestPointOnSegment(target, seg.a, seg.b);
+        const d = haversine(target, [proj[0], proj[1]]);
+        if (d < nearest.dist) nearest = { dist: d, idA: seg.idA, idB: seg.idB, t: proj[2], proj: [proj[0], proj[1]] };
+      }
+      const tempId = graphAddNode(nearest.proj[0], nearest.proj[1]);
+      state.graph.adj.get(tempId).length = 0;
+      const dA = haversine(nearest.proj, state.graph.coords.get(nearest.idA));
+      const dB = haversine(nearest.proj, state.graph.coords.get(nearest.idB));
+      state.graph.adj.get(tempId).push([nearest.idA, dA]);
+      state.graph.adj.get(nearest.idA).push([tempId, dA]);
+      state.graph.adj.get(tempId).push([nearest.idB, dB]);
+      state.graph.adj.get(nearest.idB).push([tempId, dB]);
+      return { id: tempId, snapped: true, at: nearest.proj };
+    } else {
+      for (const [id, coord] of state.graph.coords) {
+        const d = haversine(target, coord);
+        if (d < nearest.dist) nearest = { dist: d, id, proj: coord };
+      }
+      return { id: nearest.id, snapped: false, at: nearest.proj };
+    }
+  }
+
+  /* ---------- Routing (Web Worker) ---------- */
+  // Inline worker (Dijkstra) via Blob
+  const workerURL = URL.createObjectURL(new Blob([`
+    onmessage = (e) => {
+      const { coords, adj, startId, endId } = e.data;
+      function dijkstra(){
+        const N = coords.length - 1; // ids are 1..N
+        const dist = new Float64Array(N+1); dist.fill(Infinity); dist[startId] = 0;
+        const prev = new Int32Array(N+1); prev.fill(0);
+        const visited = new Uint8Array(N+1);
+        const heap = [];
+        function push(node, d){ heap.push([d,node]); up(heap.length-1); }
+        function pop(){ if(!heap.length) return null; const top=heap[0]; heap[0]=heap[heap.length-1]; heap.pop(); down(0); return top; }
+        function up(i){ while(i){ const p=(i-1)>>1; if(heap[p][0] <= heap[i][0]) break; const t=heap[p]; heap[p]=heap[i]; heap[i]=t; i=p; } }
+        function down(i){ for(;;){ let l=i*2+1,r=l+1,s=i; if(l<heap.length && heap[l][0]<heap[s][0]) s=l; if(r<heap.length && heap[r][0]<heap[s][0]) s=r; if(s===i) break; const t=heap[s]; heap[s]=heap[i]; heap[i]=t; i=s; } }
+        push(startId,0);
+        while(heap.length){
+          const [d,u] = pop();
+          if (visited[u]) continue; visited[u]=1;
+          if (u === endId) break;
+          const row = adj[u] || [];
+          for (let k=0;k<row.length;k+=2){
+            const v=row[k], w=row[k+1];
+            const nd = d + w;
+            if (nd < dist[v]) { dist[v]=nd; prev[v]=u; push(v, nd); }
+          }
+        }
+        if (!prev[endId]) return null;
+        const path=[]; for(let u=endId; u; u=prev[u]){ path.push(u); if(u===startId) break; }
+        path.reverse();
+        return { path, meters: dist[endId] };
+      }
+      const res = dijkstra();
+      postMessage(res);
+    };
+  `], { type:'application/javascript' }));
+
+  const router = new Worker(workerURL);
+
+  async function computeAndDrawRoute(startLL, endLL) {
+    setBusy(true); setRouting(true); setStatus(I18N[LANG].buildingGraph);
+    await prefetchWaterwaysForCorridor(startLL, endLL, 0.12);
+    if (state.graph.segments.length === 0) { setBusy(false); setRouting(false); setStatus(I18N[LANG].noGraph); return; }
+    setStatus(I18N[LANG].routing);
+
+    async function buildGraphArrays() {
+      const maxId = state.graph.nextId - 1;
+      const coords = new Array(maxId + 1); // 1..maxId
+      for (let [id, c] of state.graph.coords) coords[id] = c;
+      const adj = new Array(maxId + 1);
+      for (let [id, list] of state.graph.adj) {
+        const flat = new Float64Array(list.length * 2);
+        for (let i=0;i<list.length;i++) { flat[i*2] = list[i][0]; flat[i*2+1] = list[i][1]; }
+        adj[id] = Array.from(flat); // structured clone friendly
+      }
+      return { coords, adj };
+    }
+
+    async function runOnce() {
+      const s = findNearestGraphNode(startLL, true);
+      const e = findNearestGraphNode(endLL,   true);
+      const { coords, adj } = await buildGraphArrays();
+      return new Promise(resolve => {
+        router.onmessage = ev => resolve({ res: ev.data, coords });
+        router.postMessage({ coords, adj, startId: s.id, endId: e.id });
+      });
+    }
+
+    let { res, coords } = await runOnce();
+    if (!res) {
+      await prefetchWaterwaysForCorridor(startLL, endLL, 0.25);
+      ({ res, coords } = await runOnce());
+    }
+
+    setBusy(false); setRouting(false);
+    routeLayer.clearLayers();
+    if (!res) { setStatus(I18N[LANG].noPath); state.route = null; simulateBtn.disabled = true; updateRouteStats(); return; }
+    const latlngs = res.path.map(id => coords[id]);
+    drawRoute(latlngs);
+    state.route = latlngs;
+    simulateBtn.disabled = false;
+    updateRouteStats(res.meters/1000);
+    setStatus(I18N[LANG].routeComputed);
+  }
+
+  function drawRoute(latlngs) {
+    const line = L.polyline(latlngs, { color:'#111827', weight:4, opacity:0.95 }).addTo(routeLayer);
+    L.polyline(latlngs, { color:'#ffffff', weight:2, opacity:0.9, dashArray:'4 8' }).addTo(routeLayer);
+    map.fitBounds(line.getBounds(), { padding:[40,40] });
+  }
+
+  function updateRouteStats(optionalKm=null) {
+    if (!state.route) { routeStats.textContent = 'Route: —'; return; }
+    let km = (optionalKm != null) ? optionalKm : 0;
+    if (optionalKm == null) for (let i=1;i<state.route.length;i++) km += haversine(state.route[i-1], state.route[i]) / 1000;
+    const speed = Math.max(1, state.boat.speedKmh);
+    const mins = Math.round((km / speed) * 60);
+    routeStats.textContent = `Route: ${km.toFixed(2)} km • ETA @ ${speed} km/h ≈ ${mins} min`;
+  }
+
+  function clearRoute() {
+    routeLayer.clearLayers();
+    state.route = null;
+    simulateBtn.disabled = true;
+    routeStats.textContent = 'Route: —';
+  }
+
+  /* ---------- Selection ---------- */
+  function startSelect() {
+    state.selection = {
+      active: true,
+      start: null, finish: null,
+      startRaw: null, finishRaw: null,
+      startM: null, finishM: null,
+      startRawM: null, finishRawM: null,
+      startLink: null, finishLink: null
+    };
+    cancelSelBtn.disabled = false;
+    selectionLayer.clearLayers();
+    setStatus(I18N[LANG].selStart);
+  }
+  function cancelSelect() {
+    state.selection.active = false;
+    cancelSelBtn.disabled = true;
+    selectionLayer.clearLayers();
+    setStatus(I18N[LANG].selCancelled);
+  }
+  // Report picking mode
+  let pickingReport = false;
+  pickReportBtn.addEventListener('click', ()=>{ pickingReport = true; setStatus('Click a location for the report.'); });
+  async function onMapClick(e) {
+    if (pickingReport || (typeof tabReports !== 'undefined' && tabReports.classList.contains('active'))) {
+      reportDraft.latlng = e.latlng;
+      setReportMarker(e.latlng);
+      updateReportUI();
+      pickingReport = false;
+      setStatus('');
+      return;
+    }
+    if (!state.selection.active) return;
+    if (!state.selection.start) {
+      // Show raw click immediately
+      state.selection.startRaw = e.latlng;
+      state.selection.startRawM = L.marker(e.latlng, {
+        icon: L.divIcon({ className:'', html:'<div style="width:10px;height:10px;border-radius:50%;background:#10b981;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3);"></div>', iconSize:[10,10] }),
+        zIndexOffset: 1200
+      }).addTo(selectionLayer);
+      if (selectionLayer.bringToFront) selectionLayer.bringToFront();
+      setStatus(I18N[LANG].selFinish);
+      // Snap asynchronously to nearest waterway and show snapped marker + link
+      try {
+        await prefetchWaterwaysForCorridor(e.latlng, e.latlng, 0.12);
+      } catch {}
+      let snapped = null;
+      try { const s = findNearestGraphNode(e.latlng, true); snapped = { lat: s.at[0], lng: s.at[1] }; } catch {}
+      const sLL = snapped || e.latlng;
+      state.selection.start = sLL;
+      state.selection.startM = L.marker(sLL, { title:'Start', icon: L.divIcon({className:'', html:'<div style="padding:4px 8px;background:#10b981;color:#fff;border-radius:4px;font-weight:700;">Start</div>'}) }).addTo(selectionLayer);
+      state.selection.startLink = L.polyline([state.selection.startRaw, sLL], { color:'#10b981', weight:2, opacity:0.8, dashArray:'4 4' }).addTo(selectionLayer);
+    } else if (!state.selection.finish) {
+      // Show raw click immediately
+      state.selection.finishRaw = e.latlng;
+      state.selection.finishRawM = L.marker(e.latlng, {
+        icon: L.divIcon({ className:'', html:'<div style="width:10px;height:10px;border-radius:50%;background:#ef4444;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3);"></div>', iconSize:[10,10] }),
+        zIndexOffset: 1200
+      }).addTo(selectionLayer);
+      if (selectionLayer.bringToFront) selectionLayer.bringToFront();
+      setStatus(I18N[LANG].computing);
+      // Snap asynchronously to nearest waterway and show snapped marker + link, then compute route
+      try {
+        await prefetchWaterwaysForCorridor(state.selection.start, e.latlng, 0.12);
+      } catch {}
+      let snappedF = null;
+      try { const f = findNearestGraphNode(e.latlng, true); snappedF = { lat: f.at[0], lng: f.at[1] }; } catch {}
+      const fLL = snappedF || e.latlng;
+      state.selection.finish = fLL;
+      state.selection.finishM = L.marker(fLL, { title:'Finish', icon: L.divIcon({className:'', html:'<div style="padding:4px 8px;background:#ef4444;color:#fff;border-radius:4px;font-weight:700;">Finish</div>'}) }).addTo(selectionLayer);
+      state.selection.finishLink = L.polyline([state.selection.finishRaw, fLL], { color:'#ef4444', weight:2, opacity:0.8, dashArray:'4 4' }).addTo(selectionLayer);
+      computeAndDrawRoute(state.selection.start, state.selection.finish);
+      state.selection.active = false;
+      cancelSelBtn.disabled = true;
+    }
+  }
+
+  /* ---------- Simulation ---------- */
+  function toggleSimulation() {
+    if (!state.route) return;
+    if (state.sim.anim) { cancelAnimationFrame(state.sim.anim); state.sim.anim = null; simulateBtn.textContent = '▶︎ ' + I18N[LANG].simulate; return; }
+    simulateBtn.textContent = '⏸ ' + I18N[LANG].simulate;
+
+    const totalMeters = state.route.reduce((acc, _, i) => i ? acc + haversine(state.route[i-1], state.route[i]) : 0, 0);
+    const speedMs = Math.max(1, state.boat.speedKmh) * 1000 / 3600;
+    const start = performance.now();
+
+    const icon = L.divIcon({ className: '', html: '<div id="simBoat" style="width:18px;height:18px;border-radius:50%;background:#0ea5e9;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);"></div>', iconSize: [18,18] });
+    if (!state.sim.marker) state.sim.marker = L.marker(state.route[0], { icon, zIndexOffset: 1500 }).addTo(routeLayer);
+
+    const cum = [0]; for (let i=1;i<state.route.length;i++) cum[i]=cum[i-1]+haversine(state.route[i-1], state.route[i]);
+
+    function along(dist) {
+      if (dist <= 0) return state.route[0];
+      if (dist >= totalMeters) return state.route[state.route.length-1];
+      let i=1; while (dist > cum[i]) i++;
+      const A = state.route[i-1], B = state.route[i];
+      const segLen = cum[i] - cum[i-1];
+      const t = (dist - cum[i-1]) / segLen;
+      return [ A[0] + (B[0]-A[0])*t, A[1] + (B[1]-A[1])*t ];
+    }
+
+    const step = (now) => {
+      const elapsed = now - start;
+      const d = Math.min(totalMeters, elapsed * speedMs);
+      const pt = along(d);
+      state.sim.marker.setLatLng(pt);
+
+      const lookAhead = Math.min(totalMeters, d + Math.max(5, totalMeters * 0.01));
+      const q = along(lookAhead);
+      const angle = Math.atan2(q[0]-pt[0], q[1]-pt[1]) * 180 / Math.PI;
+      const el = document.getElementById('simBoat'); if (el) el.style.transform = `rotate(${90 - angle}deg)`;
+
+      if (d < totalMeters && state.sim.anim !== null) state.sim.anim = requestAnimationFrame(step);
+      else { simulateBtn.textContent = '▶︎ ' + I18N[LANG].simulate; state.sim.anim = null; }
+    };
+    state.sim.anim = requestAnimationFrame(step);
+  }
+
+  /* ---------- Save/Load routes (3 slots) ---------- */
+  function saveRouteToSlot(slot) {
+    if (!state.route || state.route.length < 2) { setStatus('No route to save.'); return; }
+    const name = slot.nameInput.value.trim() || 'Saved route';
+    const payload = { name, coords: state.route };
+    localStorage.setItem(slot.key, JSON.stringify(payload));
+    slot.nameInput.value = name;
+    setStatus(`${I18N[LANG].saved} ${name}.`);
+  }
+  function loadRouteFromSlot(slot) {
+    const raw = localStorage.getItem(slot.key);
+    if (!raw) { setStatus(I18N[LANG].nothingSaved); return; }
+    try {
+      const { name, coords } = JSON.parse(raw);
+      if (!coords?.length) throw new Error('Invalid route data');
+      clearRoute();
+      drawRoute(coords);
+      state.route = coords;
+      simulateBtn.disabled = false;
+      updateRouteStats();
+      setStatus(`${I18N[LANG].loaded} ${name || '(unnamed)'}`);
+    } catch { setStatus(I18N[LANG].saveFail); }
+  }
+  function deleteRouteSlot(slot) { localStorage.removeItem(slot.key); setStatus(I18N[LANG].deleted); }
+
+  /* ---------- Init ---------- */
+  map.setView([51.99, 4.26], 12);
+  setStatus(I18N[LANG].ready);
+  map.fire('moveend');
+
+  /* ---------- Minimal tests ---------- */
+  try {
+    console.assert(!!window.L, 'Leaflet should be present');
+  } catch(e){ console.warn('Diagnostics failed:', e); }
+}
+</script>
+</body>
+</html>

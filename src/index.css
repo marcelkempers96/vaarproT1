@@ -1,0 +1,104 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+    background-color: theme('colors.base.50');
+    color: theme('colors.base.800');
+  }
+  
+  body {
+    margin: 0;
+    padding: 0;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer components {
+  /* Modern UI Components */
+  .ui-card {
+    @apply bg-white border border-base-100 rounded-2xl shadow-card p-6;
+  }
+  
+  .ui-card-hover {
+    @apply hover:bg-base-50 hover:shadow-soft transition-all duration-200;
+  }
+  
+  .ui-button-primary {
+    @apply bg-brand text-base-800 font-medium px-4 py-2.5 rounded-xl hover:brightness-95 focus:shadow-focus transition-all duration-200 active:scale-[0.98];
+  }
+  
+  .ui-button-secondary {
+    @apply bg-base-100 border border-base-200 text-base-700 font-medium px-4 py-2.5 rounded-xl hover:bg-white hover:shadow-soft focus:shadow-focus transition-all duration-200 active:scale-[0.98];
+  }
+  
+  .ui-button-destructive {
+    @apply bg-accent text-white font-medium px-4 py-2.5 rounded-xl hover:brightness-95 focus:shadow-focus transition-all duration-200 active:scale-[0.98];
+  }
+  
+  .ui-input {
+    @apply bg-base-100 border border-base-200 rounded-xl px-3 h-10 text-base-700 placeholder-base-400 focus:bg-white focus:shadow-focus focus:outline-none transition-all duration-200;
+  }
+  
+  .ui-input-error {
+    @apply border-accent focus:shadow-none;
+  }
+  
+  .ui-heading-1 {
+    @apply text-2xl font-semibold text-base-800;
+  }
+  
+  .ui-heading-2 {
+    @apply text-xl font-semibold text-base-800;
+  }
+  
+  .ui-heading-3 {
+    @apply text-lg font-semibold text-base-800;
+  }
+  
+  .ui-body {
+    @apply text-sm text-base-600;
+  }
+  
+  .ui-label {
+    @apply text-xs text-base-500 font-medium;
+  }
+  
+  /* Animation Classes */
+  .animate-enter {
+    animation: enter 180ms ease-out;
+  }
+  
+  .animate-menu {
+    animation: menu 140ms ease-out;
+  }
+  
+  /* Marine-specific components (keeping nautical feel) */
+  .marine-gradient {
+    @apply bg-gradient-to-br from-brand-50 via-wave-light to-seafoam;
+  }
+  
+  .wave-pattern {
+    @apply bg-gradient-to-r from-transparent via-brand-50/30 to-transparent;
+  }
+  
+  .boat-shadow {
+    @apply shadow-soft;
+  }
+  
+  .navigation-card {
+    @apply ui-card ui-card-hover;
+  }
+  
+  .marine-button {
+    @apply ui-button-primary;
+  }
+  
+  .marine-button-secondary {
+    @apply ui-button-secondary;
+  }
+}
