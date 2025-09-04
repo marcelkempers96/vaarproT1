@@ -3,7 +3,7 @@
 
 export interface POI {
   id: string
-  type: 'lock' | 'bridge' | 'harbor' | 'marina' | 'gas_station' | 'report' | 'waypoint' | 'buoy' | 'beacon' | 'light' | 'anchorage'
+  type: 'lock' | 'bridge' | 'harbor' | 'marina' | 'gas_station' | 'report' | 'waypoint' | 'buoy' | 'beacon' | 'light' | 'anchorage' | 'slipway'
   name: string
   description: string
   coordinates: [number, number] // [lat, lng]

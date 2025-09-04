@@ -6,7 +6,7 @@ import { POI } from '../utils/poiUtils'
 
 interface EnhancedPOILayerProps {
   data: any
-  poiType: 'lock' | 'bridge' | 'harbor' | 'marina' | 'gas_station' | 'buoy'
+  poiType: 'lock' | 'bridge' | 'harbor' | 'marina' | 'gas_station' | 'buoy' | 'slipway'
 }
 
 // Helper function to clean up POI names
@@ -47,7 +47,15 @@ const EnhancedPOILayer: React.FC<EnhancedPOILayerProps> = ({ data, poiType }) =>
     if (data && data.elements) {
       const layer = L.layerGroup()
       
-      for (const el of data.elements) {
+      // Limit to maximum 100 POIs for performance
+      const maxPOIs = 100
+      const elementsToProcess = data.elements.slice(0, maxPOIs)
+      
+      if (data.elements.length > maxPOIs) {
+        console.log(`🚀 Limiting ${data.elements.length} POIs to ${maxPOIs} for performance`)
+      }
+      
+      for (const el of elementsToProcess) {
         let shouldInclude = false
         
         // Determine if this element should be included based on type
@@ -111,6 +119,13 @@ const EnhancedPOILayer: React.FC<EnhancedPOILayerProps> = ({ data, poiType }) =>
                            el.tags?.['seamark:type'] === 'ais' ||
                            el.tags?.['seamark:type'] === 'vts'
             break
+          case 'slipway':
+            shouldInclude = el.tags?.leisure === 'slipway' ||
+                           el.tags?.waterway === 'slipway' ||
+                           el.tags?.['seamark:type'] === 'slipway' ||
+                           el.tags?.slipway ||
+                           el.tags?.['boat:launching']
+            break
         }
         
         if (shouldInclude) {
@@ -139,7 +154,7 @@ const EnhancedPOILayer: React.FC<EnhancedPOILayerProps> = ({ data, poiType }) =>
           // Create POI object
           const poi: POI = {
             id: `${actualType}_${el.id}`,
-            type: actualType as 'lock' | 'bridge' | 'harbor' | 'marina' | 'gas_station' | 'buoy',
+            type: actualType as 'lock' | 'bridge' | 'harbor' | 'marina' | 'gas_station' | 'buoy' | 'slipway',
             name: cleanPOIName(el.tags?.name || '', actualType, el.id),
             description: el.tags?.description || `${actualType.charAt(0).toUpperCase() + actualType.slice(1)}`,
             coordinates: [lat, lon],
@@ -250,6 +265,21 @@ const EnhancedPOILayer: React.FC<EnhancedPOILayerProps> = ({ data, poiType }) =>
               box-shadow: ${shadowIntensity};
               ${isNamedPOI ? 'border-color: #f59e0b;' : ''}
             ">${iconHtml}</div>`
+          } else if (actualType === 'slipway') {
+            // Slipway uses boat emoji in blue circle with white border
+            iconHtml = `<div style="
+              width: ${baseSize}px; 
+              height: ${baseSize}px; 
+              background: #3B82F6; 
+              border: ${borderWidth}px solid white;
+              border-radius: 50%; 
+              display: flex; 
+              align-items: center; 
+              justify-content: center; 
+              font-size: ${fontSize}px;
+              box-shadow: ${shadowIntensity};
+              ${isNamedPOI ? 'border-color: #1D4ED8;' : ''}
+            ">${iconHtml}</div>`
           } else {
             iconHtml = `<div style="font-size:${fontSize}px;line-height:${fontSize}px;color:${iconColor};">${iconHtml}</div>`
           }
@@ -303,6 +333,7 @@ const getPOIIcon = (type: string): string => {
     case 'marina': return '⚓'
     case 'gas_station': return '⛽'
     case 'buoy': return '🟡'
+    case 'slipway': return '🚤'
     default: return '📍'
   }
 }
@@ -316,6 +347,7 @@ const getPOIColor = (type: string): string => {
     case 'marina': return '#F59E0B'
     case 'gas_station': return '#EF4444'
     case 'buoy': return '#FBBF24'
+    case 'slipway': return '#3B82F6'
     default: return '#6B7280'
   }
 }

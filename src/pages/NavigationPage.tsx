@@ -6,7 +6,7 @@ import L from 'leaflet'
 import { findWaterwayRoute } from '../utils/routing'
 import EnhancedPOILayer from '../components/EnhancedPOILayer'
 import { useSettings } from '../contexts/SettingsContext'
-import { extractRoutePOIs, extractRoutePOIsWithCorridor } from '../utils/poiUtils'
+import { extractRoutePOIs, extractRoutePOIsWithCorridor, formatTime } from '../utils/poiUtils'
 
 // Enhanced POI Popup Styles
 const enhancedPopupStyles = `
@@ -166,7 +166,7 @@ const RouteLayer: React.FC<{ coordinates: [number, number][], isVisible: boolean
     
     const routeLayer = L.layerGroup()
     
-    // Create main route line
+    // Create main route line with higher z-index
     const routeLine = L.polyline(coordinates, {
       color: '#111827', // Dark color
       weight: 6,
@@ -280,6 +280,7 @@ const NavigationPage: React.FC = () => {
   const [bridgesData, setBridgesData] = useState<any>(null)
   const [docksData, setDocksData] = useState<any>(null)
   const [gasStationsData, setGasStationsData] = useState<any>(null)
+  const [slipwaysData, setSlipwaysData] = useState<any>(null)
   
   // Viewport-based caching
   const [loadedViewports, setLoadedViewports] = useState<Set<string>>(new Set())
@@ -290,17 +291,31 @@ const NavigationPage: React.FC = () => {
   const [showBridges, setShowBridges] = useState(false)
   const [showDocks, setShowDocks] = useState(false)
   const [showGasStations, setShowGasStations] = useState(false)
+  const [showSlipways, setShowSlipways] = useState(false)
+  const [showReports, setShowReports] = useState(true) // Show reports by default
   const [showMapPanel, setShowMapPanel] = useState(false)
   const [showNavigationModal, setShowNavigationModal] = useState(false)
   const [showAlertPanel, setShowAlertPanel] = useState(false)
+  const [showSaveRouteModal, setShowSaveRouteModal] = useState(false)
+  const [routeName, setRouteName] = useState('')
   const [isLoadingMap, setIsLoadingMap] = useState(true)
   
   // Alert state
   const [alertSelection, setAlertSelection] = useState<'shallow_water' | 'bridge_closed' | 'lock_closed' | 'obstruction' | 'hazardous_navigation' | 'speed_limit' | 'port_full' | 'accident' | 'police_checkpoint' | null>(null)
   const [alertLocation, setAlertLocation] = useState<[number, number] | null>(null)
   
+  // Report state
+  const [reportMode, setReportMode] = useState<string | null>(null)
+  const [reports, setReports] = useState<Array<{
+    id: string
+    type: string
+    location: [number, number]
+    timestamp: number
+    user: string
+  }>>([])
+  
   // Navigation points
-  const [mapClickMode, setMapClickMode] = useState<'start' | 'end' | 'alert' | null>(null)
+  const [mapClickMode, setMapClickMode] = useState<'start' | 'end' | 'alert' | 'report' | null>(null)
   const [startPoint, setStartPoint] = useState<[number, number] | null>(null)
   const [endPoint, setEndPoint] = useState<[number, number] | null>(null)
   
@@ -409,6 +424,22 @@ const NavigationPage: React.FC = () => {
       ); out tags center qt;`
   }
 
+  // Query for slipways (scheepshelling)
+  const qSlipways = (bounds: L.LatLngBounds) => {
+    const bbox = bboxString(bounds)
+    return `[out:json][timeout:60];(
+        node["leisure"="slipway"](${bbox});
+        way["leisure"="slipway"](${bbox});
+        node["waterway"="slipway"](${bbox});
+        way["waterway"="slipway"](${bbox});
+        node["seamark:type"="slipway"](${bbox});
+        node["slipway"](${bbox});
+        way["slipway"](${bbox});
+        node["boat:launching"](${bbox});
+        way["boat:launching"](${bbox});
+      ); out tags center qt;`
+  }
+
   // Combined query for multiple POI types (more efficient)
   const qCombinedPOIs = (bounds: L.LatLngBounds, types: string[]) => {
     const bbox = bboxString(bounds)
@@ -456,6 +487,19 @@ const NavigationPage: React.FC = () => {
         node["fuel"](${bbox});
         way["fuel"](${bbox});
         node["seamark:fuel:type"](${bbox});`
+    }
+    
+    if (types.includes('slipways')) {
+      query += `
+        node["leisure"="slipway"](${bbox});
+        way["leisure"="slipway"](${bbox});
+        node["waterway"="slipway"](${bbox});
+        way["waterway"="slipway"](${bbox});
+        node["seamark:type"="slipway"](${bbox});
+        node["slipway"](${bbox});
+        way["slipway"](${bbox});
+        node["boat:launching"](${bbox});
+        way["boat:launching"](${bbox});`
     }
     
     query += `); out tags center qt;`
@@ -576,8 +620,8 @@ const NavigationPage: React.FC = () => {
         
         setLocksData({ elements: locks })
         
-        // Only load bridges at zoom level 16 or higher
-        if (mapRef.current && mapRef.current.getZoom() >= 16) {
+        // Only load bridges at zoom level 12 or higher
+        if (mapRef.current && mapRef.current.getZoom() >= 12) {
           setBridgesData({ elements: bridges })
         } else {
           setBridgesData(null)
@@ -636,6 +680,27 @@ const NavigationPage: React.FC = () => {
     }
   }
 
+  // Load slipways data
+  const loadSlipwaysData = async (bounds: L.LatLngBounds) => {
+    console.log('🚤 Loading slipways data for bounds:', bounds)
+    try {
+      const data = await fetchOverpass(qSlipways(bounds), 'Slipways')
+      if (data && data.elements && data.elements.length > 0) {
+        console.log('✅ Slipways data loaded successfully:', data.elements.length, 'elements')
+        console.log('🔍 Sample Slipway:', data.elements[0])
+        
+        setSlipwaysData({ elements: data.elements })
+        return data
+      } else {
+        console.log('⚠️ Slipways data empty or invalid:', data)
+        return null
+      }
+    } catch (error) {
+      console.error('❌ Error loading slipways data:', error)
+      return null
+    }
+  }
+
   // Load multiple POI types efficiently with combined query
   const loadCombinedPOIsData = async (bounds: L.LatLngBounds, types: string[]) => {
     console.log('🏗️ Loading combined POIs data for types:', types, 'bounds:', bounds)
@@ -662,7 +727,7 @@ const NavigationPage: React.FC = () => {
           const bridges = data.elements.filter((el: any) => 
             el.type === 'way' && el.tags?.bridge
           )
-          if (mapRef.current && mapRef.current.getZoom() >= 16) {
+          if (mapRef.current && mapRef.current.getZoom() >= 12) {
             setBridgesData({ elements: bridges })
           } else {
             setBridgesData(null)
@@ -691,6 +756,18 @@ const NavigationPage: React.FC = () => {
           )
           setGasStationsData({ elements: gasStations })
           console.log('⛽ Gas Stations filtered:', gasStations.length)
+        }
+        
+        if (types.includes('slipways')) {
+          const slipways = data.elements.filter((el: any) => 
+            el.tags?.leisure === 'slipway' ||
+            el.tags?.waterway === 'slipway' ||
+            el.tags?.['seamark:type'] === 'slipway' ||
+            el.tags?.slipway ||
+            el.tags?.['boat:launching']
+          )
+          setSlipwaysData({ elements: slipways })
+          console.log('🚤 Slipways filtered:', slipways.length)
         }
         
         return data
@@ -748,6 +825,37 @@ const NavigationPage: React.FC = () => {
       
       // START NAVIGATION IMMEDIATELY with the snapped coordinates
       startNavigationWithCoordinates(newEndPoint)
+      
+    } else if (mapClickMode === 'report' && reportMode) {
+      // Handle report submission
+      const newReport = {
+        id: Date.now().toString(),
+        type: reportMode,
+        location: [lat, lng] as [number, number],
+        timestamp: Date.now(),
+        user: 'Current User' // In a real app, this would be the actual user
+      }
+      
+      setReports(prev => [...prev, newReport])
+      
+      // Save to localStorage for persistence
+      try {
+        const reportsKey = 'vaarpro_reports'
+        const existingReports = JSON.parse(localStorage.getItem(reportsKey) || '[]')
+        const updatedReports = [...existingReports, newReport]
+        localStorage.setItem(reportsKey, JSON.stringify(updatedReports))
+        console.log('✅ Report saved:', newReport)
+      } catch (error) {
+        console.error('❌ Failed to save report:', error)
+      }
+      
+      // Clear report mode
+      setMapClickMode(null)
+      setReportMode(null)
+      console.log('📝 Report submitted at:', lat, lng)
+      
+      // Show success message
+      alert(`✅ Report submitted successfully!\nType: ${reportMode.replace('_', ' ')}\nLocation: ${lat.toFixed(5)}, ${lng.toFixed(5)}`)
       
     } else {
       console.log('No click mode set, ignoring click')
@@ -878,16 +986,40 @@ const NavigationPage: React.FC = () => {
       }
     }
     
+    const handleEnableReportMode = (event: CustomEvent) => {
+      const { reportType } = event.detail
+      setReportMode(reportType)
+      setMapClickMode('report')
+      console.log('📝 Report mode enabled for:', reportType)
+    }
+    
     window.addEventListener('toggleShowMapPanel', handleToggleShowMapPanel)
     window.addEventListener('showNavigationModal', handleShowNavigationModal)
     window.addEventListener('locateMe', handleLocateMe as EventListener)
+    window.addEventListener('enableReportMode', handleEnableReportMode as EventListener)
     
     return () => {
       window.removeEventListener('toggleShowMapPanel', handleToggleShowMapPanel)
       window.removeEventListener('showNavigationModal', handleShowNavigationModal)
       window.removeEventListener('locateMe', handleLocateMe as EventListener)
+      window.removeEventListener('enableReportMode', handleEnableReportMode as EventListener)
     }
   }, [showMapPanel])
+
+  // Load existing reports on component mount
+  useEffect(() => {
+    try {
+      const reportsKey = 'vaarpro_reports'
+      const savedReports = localStorage.getItem(reportsKey)
+      if (savedReports) {
+        const parsedReports = JSON.parse(savedReports)
+        setReports(parsedReports)
+        console.log('📝 Loaded', parsedReports.length, 'existing reports')
+      }
+    } catch (error) {
+      console.error('❌ Failed to load reports:', error)
+    }
+  }, [])
 
   // Load POI data on-demand when toggles are enabled
   useEffect(() => {
@@ -920,6 +1052,11 @@ const NavigationPage: React.FC = () => {
           needsCombinedLoad.push('gas_stations')
         }
         
+        if (showSlipways && !slipwaysData) {
+          typesToLoad.push('slipways')
+          needsCombinedLoad.push('slipways')
+        }
+        
         // Use combined query if multiple types need loading
         if (typesToLoad.length > 1) {
           console.log('🏗️ Loading combined POIs data on-demand for types:', typesToLoad)
@@ -938,6 +1075,10 @@ const NavigationPage: React.FC = () => {
             console.log('⛽ Loading gas stations data on-demand...')
             await loadGasStationsData(bounds)
           }
+          if (typesToLoad.includes('slipways')) {
+            console.log('🚤 Loading slipways data on-demand...')
+            await loadSlipwaysData(bounds)
+          }
         }
       } catch (error) {
         console.error('❌ Error loading POI data on-demand:', error)
@@ -945,7 +1086,7 @@ const NavigationPage: React.FC = () => {
     }
     
     loadPOIDataOnDemand()
-  }, [showLocks, showBridges, showDocks, showGasStations, locksData, bridgesData, docksData, gasStationsData])
+  }, [showLocks, showBridges, showDocks, showGasStations, showSlipways, locksData, bridgesData, docksData, gasStationsData, slipwaysData])
 
   // Initial data load when component mounts - only load for current viewport
   useEffect(() => {
@@ -989,6 +1130,7 @@ const NavigationPage: React.FC = () => {
             }
             if (showDocks) enabledTypes.push('harbors')
             if (showGasStations) enabledTypes.push('gas_stations')
+            if (showSlipways) enabledTypes.push('slipways')
             
             if (enabledTypes.length > 0) {
               if (enabledTypes.length > 1) {
@@ -1011,6 +1153,11 @@ const NavigationPage: React.FC = () => {
                   console.log('⛽ Loading gas stations data...')
                   const gasStationsResult = await loadGasStationsData(bounds)
                   console.log('✅ Gas Stations data loaded:', !!gasStationsResult)
+                }
+                if (enabledTypes.includes('slipways')) {
+                  console.log('🚤 Loading slipways data...')
+                  const slipwaysResult = await loadSlipwaysData(bounds)
+                  console.log('✅ Slipways data loaded:', !!slipwaysResult)
                 }
               }
             }
@@ -1044,6 +1191,46 @@ const NavigationPage: React.FC = () => {
 
   }, [])
 
+  // Save route with name function
+  const saveRouteWithName = () => {
+    if (routeName && routeName.trim()) {
+      const newRoute = {
+        id: Date.now().toString(),
+        name: routeName.trim(),
+        startPoint,
+        endPoint,
+        routeData: currentRoute,
+        coordinates: routeCoordinates,
+        totalDistance: currentRoute.totalDistance,
+        totalTime: currentRoute.totalTime,
+        savedAt: new Date().toISOString()
+      }
+      
+      // Save to localStorage
+      try {
+        const savedRoutesKey = 'vaarpro_saved_routes'
+        const existingRoutes = JSON.parse(localStorage.getItem(savedRoutesKey) || '[]')
+        const updatedRoutes = [...existingRoutes, newRoute].slice(-3) // Keep only last 3 routes
+        localStorage.setItem(savedRoutesKey, JSON.stringify(updatedRoutes))
+        
+        console.log('✅ Route saved successfully:', newRoute.name)
+        alert(`✅ Route "${newRoute.name}" saved successfully!`)
+        
+        // Dispatch event to update the UI
+        window.dispatchEvent(new CustomEvent('routeSaved', { detail: { route: newRoute } }))
+        
+        // Close modal and reset
+        setShowSaveRouteModal(false)
+        setRouteName('')
+      } catch (error) {
+        console.error('❌ Failed to save route:', error)
+        alert('❌ Failed to save route. Please try again.')
+      }
+    } else {
+      alert('Please enter a route name.')
+    }
+  }
+
   // Handle map style changes from NavigationLayout
   useEffect(() => {
     const handleMapStyleChange = (event: CustomEvent) => {
@@ -1054,37 +1241,8 @@ const NavigationPage: React.FC = () => {
 
     const handleSaveCurrentRoute = () => {
       if (currentRoute && startPoint && endPoint && routeCoordinates.length > 0) {
-        const routeName = prompt('Enter a name for this route:')
-        if (routeName && routeName.trim()) {
-          const newRoute = {
-            id: Date.now().toString(),
-            name: routeName.trim(),
-            startPoint,
-            endPoint,
-            routeData: currentRoute,
-            coordinates: routeCoordinates,
-            totalDistance: currentRoute.totalDistance,
-            totalTime: currentRoute.totalTime,
-            savedAt: new Date().toISOString()
-          }
-          
-          // Save to localStorage
-          try {
-            const savedRoutesKey = 'vaarpro_saved_routes'
-            const existingRoutes = JSON.parse(localStorage.getItem(savedRoutesKey) || '[]')
-            const updatedRoutes = [...existingRoutes, newRoute].slice(-3) // Keep only last 3 routes
-            localStorage.setItem(savedRoutesKey, JSON.stringify(updatedRoutes))
-            
-            console.log('✅ Route saved successfully:', newRoute.name)
-            alert(`✅ Route "${newRoute.name}" saved successfully!`)
-            
-            // Dispatch event to update the UI
-            window.dispatchEvent(new CustomEvent('routeSaved', { detail: { route: newRoute } }))
-          } catch (error) {
-            console.error('❌ Failed to save route:', error)
-            alert('❌ Failed to save route. Please try again.')
-          }
-        }
+        setShowSaveRouteModal(true)
+        setRouteName('')
       } else {
         alert('No active route to save. Please start navigation first.')
       }
@@ -1156,6 +1314,7 @@ const NavigationPage: React.FC = () => {
             }
             if (showDocks) enabledTypes.push('harbors')
             if (showGasStations) enabledTypes.push('gas_stations')
+            if (showSlipways) enabledTypes.push('slipways')
             
             if (enabledTypes.length > 0) {
               if (enabledTypes.length > 1) {
@@ -1170,6 +1329,9 @@ const NavigationPage: React.FC = () => {
                 }
                 if (enabledTypes.includes('gas_stations')) {
                   await loadGasStationsData(bounds)
+                }
+                if (enabledTypes.includes('slipways')) {
+                  await loadSlipwaysData(bounds)
                 }
               }
             }
@@ -1267,7 +1429,7 @@ const NavigationPage: React.FC = () => {
               <div className="flex items-center gap-3 text-white">
                 <span className="text-2xl">🟩</span>
                 <span className="text-sm font-medium">Bridges</span>
-                <span className="text-xs text-blue-200">(Zoom ≥16)</span>
+                <span className="text-xs text-blue-200">(Zoom ≥12)</span>
               </div>
               <button
                 onClick={() => setShowBridges(!showBridges)}
@@ -1303,11 +1465,11 @@ const NavigationPage: React.FC = () => {
               </button>
             </div>
             
-            {/* Gas Stations Toggle */}
+            {/* Fuel Toggle */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3 text-white">
                 <span className="text-2xl">⛽</span>
-                <span className="text-sm font-medium">Gas Stations</span>
+                <span className="text-sm font-medium">Fuel</span>
               </div>
               <button
                 onClick={() => setShowGasStations(!showGasStations)}
@@ -1318,6 +1480,46 @@ const NavigationPage: React.FC = () => {
                 <span
                   className={`inline-block h-4 w-4 transform rounded-full bg-white transition duration-200 ease-in-out ${
                     showGasStations ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+            
+            {/* Slipways Toggle */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3 text-white">
+                <span className="text-2xl">🚤</span>
+                <span className="text-sm font-medium">Slipways</span>
+              </div>
+              <button
+                onClick={() => setShowSlipways(!showSlipways)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 ${
+                  showSlipways ? 'bg-blue-600' : 'bg-gray-200'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition duration-200 ease-in-out ${
+                    showSlipways ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+            
+            {/* Reports Toggle */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3 text-white">
+                <span className="text-2xl">📝</span>
+                <span className="text-sm font-medium">Reports</span>
+              </div>
+              <button
+                onClick={() => setShowReports(!showReports)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 ${
+                  showReports ? 'bg-blue-600' : 'bg-gray-200'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition duration-200 ease-in-out ${
+                    showReports ? 'translate-x-6' : 'translate-x-1'
                   }`}
                 />
               </button>
@@ -1343,7 +1545,10 @@ const NavigationPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
             <span className="text-sm font-medium">
-              {mapClickMode === 'start' ? 'Click to set START point' : 'Click to set END point'}
+              {mapClickMode === 'start' ? 'Click to set START point' : 
+               mapClickMode === 'end' ? 'Click to set END point' :
+               mapClickMode === 'report' ? `Click to add ${reportMode?.replace('_', ' ')} report` :
+               'Click on map'}
             </span>
           </div>
         </div>
@@ -1518,7 +1723,54 @@ const NavigationPage: React.FC = () => {
             <EnhancedPOILayer data={gasStationsData} poiType="gas_station" />
           )}
           
-          {/* Route Layer */}
+          {showSlipways && slipwaysData && (
+            <EnhancedPOILayer data={slipwaysData} poiType="slipway" />
+          )}
+          
+          {/* Report Markers */}
+          {showReports && reports.map((report) => (
+            <Marker
+              key={report.id}
+              position={report.location}
+              icon={L.divIcon({
+                className: 'custom-report-marker',
+                html: `<div style="width: 32px; height: 32px; background: #f59e0b; border: 3px solid white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; box-shadow: 0 4px 8px rgba(0,0,0,0.3);">${
+                  report.type === 'shallow_water' ? '💧' :
+                  report.type === 'bridge_closed' ? '🌉' :
+                  report.type === 'lock_closed' ? '🚦' :
+                  report.type === 'obstruction' ? '🚧' :
+                  report.type === 'hazardous_navigation' ? '⚠️' :
+                  report.type === 'speed_limit' ? '🚫' :
+                  report.type === 'port_full' ? '⚓' :
+                  report.type === 'accident' ? '🚨' :
+                  report.type === 'police_checkpoint' ? '👮' : '📝'
+                }</div>`,
+                iconSize: [32, 32],
+                iconAnchor: [16, 16]
+              })}
+            >
+              <Popup>
+                <div>
+                  <strong>Report: {
+                    report.type === 'shallow_water' ? 'Shallow Water' :
+                    report.type === 'bridge_closed' ? 'Bridge Closed' :
+                    report.type === 'lock_closed' ? 'Lock Closed' :
+                    report.type === 'obstruction' ? 'Obstruction' :
+                    report.type === 'hazardous_navigation' ? 'Hazardous Navigation' :
+                    report.type === 'speed_limit' ? 'Speed Limit' :
+                    report.type === 'port_full' ? 'Port Full' :
+                    report.type === 'accident' ? 'Accident' :
+                    report.type === 'police_checkpoint' ? 'Police Checkpoint' : 'Unknown'
+                  }</strong><br/>
+                  <strong>Reported by:</strong> {report.user}<br/>
+                  <strong>Time:</strong> {new Date(report.timestamp).toLocaleString()}<br/>
+                  <strong>Location:</strong> {report.location[0].toFixed(5)}, {report.location[1].toFixed(5)}
+                </div>
+              </Popup>
+            </Marker>
+          ))}
+          
+          {/* Route Layer - Rendered AFTER waterways to ensure it appears on top */}
           <RouteLayer coordinates={routeCoordinates} isVisible={currentRoute !== null} />
 
           {/* Test Marker to verify map is working */}
@@ -1651,6 +1903,53 @@ const NavigationPage: React.FC = () => {
             >
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Save Route Modal */}
+      {showSaveRouteModal && (
+        <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-2 sm:p-4">
+          <div className="bg-white rounded-xl sm:rounded-2xl p-4 sm:p-6 max-w-md w-full mx-2">
+            <h3 className="text-lg font-semibold mb-4">Save Route</h3>
+            
+            <div className="space-y-3">
+              <div className="text-sm text-gray-600 mb-3">
+                Enter a name for this route:
+              </div>
+              
+              <input
+                type="text"
+                value={routeName}
+                onChange={(e) => setRouteName(e.target.value)}
+                placeholder="e.g., Amsterdam to Utrecht"
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                autoFocus
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    saveRouteWithName()
+                  }
+                }}
+              />
+            </div>
+
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={saveRouteWithName}
+                className="flex-1 p-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors"
+              >
+                Save Route
+              </button>
+              <button
+                onClick={() => {
+                  setShowSaveRouteModal(false)
+                  setRouteName('')
+                }}
+                className="flex-1 p-3 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-800 font-medium"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1871,9 +2170,9 @@ const NavigationPage: React.FC = () => {
                       }
                     }}
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 flex-1">
                       <div className="text-2xl">{poi.icon}</div>
-                      <div>
+                      <div className="flex-1">
                         <div className="font-medium text-gray-900">{poi.name}</div>
                         <div className="text-sm text-gray-600">{poi.description}</div>
                         {poi.distance && (
@@ -1886,8 +2185,18 @@ const NavigationPage: React.FC = () => {
                         )}
                       </div>
                     </div>
-                    <div className="text-gray-400">
-                      <Navigation size={16} />
+                    <div className="flex items-center gap-2">
+                      {poi.estimatedTime > 0 && (
+                        <div className="text-right">
+                          <div className="text-lg font-bold text-cyan-600">
+                            {formatTime(poi.estimatedTime)}
+                          </div>
+                          <div className="text-xs text-gray-500">ETA</div>
+                        </div>
+                      )}
+                      <div className="text-gray-400">
+                        <Navigation size={16} />
+                      </div>
                     </div>
                   </div>
                 ))}

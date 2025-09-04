@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
-import { ChevronUp, ChevronDown, MapPin, Globe, Navigation, Save, User, Layers } from 'lucide-react'
+import { ChevronUp, ChevronDown, MapPin, Globe, Navigation, Save, User, Layers, AlertTriangle } from 'lucide-react'
 import { useSettings } from '../../contexts/SettingsContext'
 
 const NavigationLayout: React.FC = () => {
@@ -8,6 +8,8 @@ const NavigationLayout: React.FC = () => {
   const [showMapStylePanel, setShowMapStylePanel] = useState(false)
   const [showSavedRoutesPanel, setShowSavedRoutesPanel] = useState(false)
   const [showBoatProfilePanel, setShowBoatProfilePanel] = useState(false)
+  const [showReportPanel, setShowReportPanel] = useState(false)
+  const [selectedReportType, setSelectedReportType] = useState<string | null>(null)
   const location = useLocation()
   const { settings, updateSetting } = useSettings()
   
@@ -131,6 +133,15 @@ const NavigationLayout: React.FC = () => {
           <Save size={24} />
         </button>
 
+
+        {/* Report Button */}
+        <button
+          onClick={() => setShowReportPanel(!showReportPanel)}
+          className="w-14 h-14 bg-gradient-to-br from-yellow-500 to-orange-500 text-white rounded-full shadow-card flex items-center justify-center hover:brightness-95 transition-all duration-200 active:scale-[0.98] border border-white/30"
+          title="Report Issue"
+        >
+          <AlertTriangle size={24} />
+        </button>
 
         {/* Locate Me Button */}
         <button
@@ -326,113 +337,260 @@ const NavigationLayout: React.FC = () => {
 
       {/* Boat Profile Panel */}
       {showBoatProfilePanel && (
-        <div className="fixed top-20 right-4 z-50 bg-white rounded-xl shadow-2xl p-4 w-80 border border-gray-200">
+        <div className="fixed top-20 right-4 z-50 bg-gradient-to-br from-blue-600 to-cyan-600 backdrop-blur-md border border-white/30 rounded-xl shadow-2xl p-4 w-80">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-lg font-semibold text-gray-800">Boat Profile</h3>
+            <h3 className="text-lg font-semibold text-white">Boat Profile</h3>
             <button
               onClick={() => setShowBoatProfilePanel(false)}
-              className="text-gray-500 hover:text-gray-700 transition-colors"
+              className="text-white hover:text-blue-200 transition-colors"
             >
               ✕
             </button>
           </div>
           
           <div className="space-y-4">
-            <div className="flex items-center justify-between py-2 border-b border-gray-100">
+            <div className="flex items-center justify-between py-3 border-b border-white/20">
               <div>
-                <div className="font-medium text-gray-900">Boat Length</div>
-                <div className="text-sm text-gray-600">Length of your boat in meters</div>
+                <div className="font-medium text-white text-base">Boat Length</div>
+                <div className="text-sm text-blue-100">Length of your boat in meters</div>
               </div>
-              <div className="ml-4">
+              <div className="ml-4 flex items-center">
                 <input
                   type="number"
                   min="1"
                   max="50"
                   step="0.1"
-                  className="w-20 p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                  value={settings.boatLength}
-                  onChange={(e) => updateSetting('boatLength', parseFloat(e.target.value) || 0)}
+                  className="w-24 p-3 border border-white/30 rounded-lg text-base bg-white/20 text-white placeholder-white/70 focus:ring-2 focus:ring-white/50 focus:border-white/50 focus:bg-white/30"
+                  value={settings.boatLength || ''}
+                  onChange={(e) => updateSetting('boatLength', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
                 />
-                <span className="text-sm text-gray-600 ml-1">m</span>
+                <span className="text-base text-white ml-2 font-medium">m</span>
               </div>
             </div>
 
-            <div className="flex items-center justify-between py-2 border-b border-gray-100">
+            <div className="flex items-center justify-between py-3 border-b border-white/20">
               <div>
-                <div className="font-medium text-gray-900">Boat Width/Beam</div>
-                <div className="text-sm text-gray-600">Width of your boat in meters</div>
+                <div className="font-medium text-white text-base">Boat Width/Beam</div>
+                <div className="text-sm text-blue-100">Width of your boat in meters</div>
               </div>
-              <div className="ml-4">
+              <div className="ml-4 flex items-center">
                 <input
                   type="number"
                   min="0.5"
                   max="20"
                   step="0.1"
-                  className="w-20 p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                  value={settings.boatWidth}
-                  onChange={(e) => updateSetting('boatWidth', parseFloat(e.target.value) || 0)}
+                  className="w-24 p-3 border border-white/30 rounded-lg text-base bg-white/20 text-white placeholder-white/70 focus:ring-2 focus:ring-white/50 focus:border-white/50 focus:bg-white/30"
+                  value={settings.boatWidth || ''}
+                  onChange={(e) => updateSetting('boatWidth', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
                 />
-                <span className="text-sm text-gray-600 ml-1">m</span>
+                <span className="text-base text-white ml-2 font-medium">m</span>
               </div>
             </div>
 
-            <div className="flex items-center justify-between py-2 border-b border-gray-100">
+            <div className="flex items-center justify-between py-3 border-b border-white/20">
               <div>
-                <div className="font-medium text-gray-900">Cruising Speed</div>
-                <div className="text-sm text-gray-600">Your typical cruising speed for ETA calculations</div>
+                <div className="font-medium text-white text-base">Cruising Speed</div>
+                <div className="text-sm text-blue-100">Your typical cruising speed for ETA calculations</div>
               </div>
-              <div className="ml-4">
+              <div className="ml-4 flex items-center">
                 <input
                   type="number"
                   min="1"
                   max="50"
                   step="0.5"
-                  className="w-20 p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                  value={settings.boatSpeed}
-                  onChange={(e) => updateSetting('boatSpeed', parseFloat(e.target.value) || 0)}
+                  className="w-24 p-3 border border-white/30 rounded-lg text-base bg-white/20 text-white placeholder-white/70 focus:ring-2 focus:ring-white/50 focus:border-white/50 focus:bg-white/30"
+                  value={settings.boatSpeed || ''}
+                  onChange={(e) => updateSetting('boatSpeed', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
                 />
-                <span className="text-sm text-gray-600 ml-1">km/h</span>
+                <span className="text-base text-white ml-2 font-medium">km/h</span>
               </div>
             </div>
 
-            <div className="flex items-center justify-between py-2 border-b border-gray-100">
+            <div className="flex items-center justify-between py-3 border-b border-white/20">
               <div>
-                <div className="font-medium text-gray-900">Boat Height</div>
-                <div className="text-sm text-gray-600">Height of your boat above waterline</div>
+                <div className="font-medium text-white text-base">Boat Height</div>
+                <div className="text-sm text-blue-100">Height of your boat above waterline</div>
               </div>
-              <div className="ml-4">
+              <div className="ml-4 flex items-center">
                 <input
                   type="number"
                   min="0.5"
                   max="20"
                   step="0.1"
-                  className="w-20 p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                  value={settings.boatHeight}
-                  onChange={(e) => updateSetting('boatHeight', parseFloat(e.target.value) || 0)}
+                  className="w-24 p-3 border border-white/30 rounded-lg text-base bg-white/20 text-white placeholder-white/70 focus:ring-2 focus:ring-white/50 focus:border-white/50 focus:bg-white/30"
+                  value={settings.boatHeight || ''}
+                  onChange={(e) => updateSetting('boatHeight', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
                 />
-                <span className="text-sm text-gray-600 ml-1">m</span>
+                <span className="text-base text-white ml-2 font-medium">m</span>
               </div>
             </div>
 
-            <div className="flex items-center justify-between py-2">
+            <div className="flex items-center justify-between py-3">
               <div>
-                <div className="font-medium text-gray-900">Boat Draught</div>
-                <div className="text-sm text-gray-600">Depth below waterline</div>
+                <div className="font-medium text-white text-base">Boat Draught</div>
+                <div className="text-sm text-blue-100">Depth below waterline</div>
               </div>
-              <div className="ml-4">
+              <div className="ml-4 flex items-center">
                 <input
                   type="number"
                   min="0.5"
                   max="20"
                   step="0.1"
-                  className="w-20 p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                  value={settings.boatDraught}
-                  onChange={(e) => updateSetting('boatDraught', parseFloat(e.target.value) || 0)}
+                  className="w-24 p-3 border border-white/30 rounded-lg text-base bg-white/20 text-white placeholder-white/70 focus:ring-2 focus:ring-white/50 focus:border-white/50 focus:bg-white/30"
+                  value={settings.boatDraught || ''}
+                  onChange={(e) => updateSetting('boatDraught', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
                 />
-                <span className="text-sm text-gray-600 ml-1">m</span>
+                <span className="text-base text-white ml-2 font-medium">m</span>
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Report Panel */}
+      {showReportPanel && (
+        <div className="fixed top-20 right-4 z-50 bg-gradient-to-br from-yellow-500 to-orange-500 backdrop-blur-md border border-white/30 rounded-xl shadow-2xl p-4 w-80">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-lg font-semibold text-white">Report Issue</h3>
+            <button
+              onClick={() => {
+                setShowReportPanel(false)
+                setSelectedReportType(null)
+              }}
+              className="text-white hover:text-yellow-200 transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+          
+          {!selectedReportType ? (
+            <div className="space-y-3">
+              <p className="text-white text-sm mb-4">Select the type of issue to report:</p>
+              
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={() => setSelectedReportType('shallow_water')}
+                  className="p-3 bg-white/20 hover:bg-white/30 rounded-lg border border-white/30 transition-colors text-center"
+                >
+                  <div className="text-2xl mb-1">💧</div>
+                  <div className="text-xs text-white font-medium">Shallow Water</div>
+                </button>
+                
+                <button
+                  onClick={() => setSelectedReportType('bridge_closed')}
+                  className="p-3 bg-white/20 hover:bg-white/30 rounded-lg border border-white/30 transition-colors text-center"
+                >
+                  <div className="text-2xl mb-1">🌉</div>
+                  <div className="text-xs text-white font-medium">Bridge Closed</div>
+                </button>
+                
+                <button
+                  onClick={() => setSelectedReportType('lock_closed')}
+                  className="p-3 bg-white/20 hover:bg-white/30 rounded-lg border border-white/30 transition-colors text-center"
+                >
+                  <div className="text-2xl mb-1">🚦</div>
+                  <div className="text-xs text-white font-medium">Lock Closed</div>
+                </button>
+                
+                <button
+                  onClick={() => setSelectedReportType('obstruction')}
+                  className="p-3 bg-white/20 hover:bg-white/30 rounded-lg border border-white/30 transition-colors text-center"
+                >
+                  <div className="text-2xl mb-1">🚧</div>
+                  <div className="text-xs text-white font-medium">Obstruction</div>
+                </button>
+                
+                <button
+                  onClick={() => setSelectedReportType('hazardous_navigation')}
+                  className="p-3 bg-white/20 hover:bg-white/30 rounded-lg border border-white/30 transition-colors text-center"
+                >
+                  <div className="text-2xl mb-1">⚠️</div>
+                  <div className="text-xs text-white font-medium">Hazardous</div>
+                </button>
+                
+                <button
+                  onClick={() => setSelectedReportType('speed_limit')}
+                  className="p-3 bg-white/20 hover:bg-white/30 rounded-lg border border-white/30 transition-colors text-center"
+                >
+                  <div className="text-2xl mb-1">🚫</div>
+                  <div className="text-xs text-white font-medium">Speed Limit</div>
+                </button>
+                
+                <button
+                  onClick={() => setSelectedReportType('port_full')}
+                  className="p-3 bg-white/20 hover:bg-white/30 rounded-lg border border-white/30 transition-colors text-center"
+                >
+                  <div className="text-2xl mb-1">⚓</div>
+                  <div className="text-xs text-white font-medium">Port Full</div>
+                </button>
+                
+                <button
+                  onClick={() => setSelectedReportType('accident')}
+                  className="p-3 bg-white/20 hover:bg-white/30 rounded-lg border border-white/30 transition-colors text-center"
+                >
+                  <div className="text-2xl mb-1">🚨</div>
+                  <div className="text-xs text-white font-medium">Accident</div>
+                </button>
+                
+                <button
+                  onClick={() => setSelectedReportType('police_checkpoint')}
+                  className="p-3 bg-white/20 hover:bg-white/30 rounded-lg border border-white/30 transition-colors text-center"
+                >
+                  <div className="text-2xl mb-1">👮</div>
+                  <div className="text-xs text-white font-medium">Police</div>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="text-center">
+                <div className="text-4xl mb-2">
+                  {selectedReportType === 'shallow_water' && '💧'}
+                  {selectedReportType === 'bridge_closed' && '🌉'}
+                  {selectedReportType === 'lock_closed' && '🚦'}
+                  {selectedReportType === 'obstruction' && '🚧'}
+                  {selectedReportType === 'hazardous_navigation' && '⚠️'}
+                  {selectedReportType === 'speed_limit' && '🚫'}
+                  {selectedReportType === 'port_full' && '⚓'}
+                  {selectedReportType === 'accident' && '🚨'}
+                  {selectedReportType === 'police_checkpoint' && '👮'}
+                </div>
+                <h4 className="text-white font-semibold text-lg">
+                  {selectedReportType === 'shallow_water' && 'Shallow Water'}
+                  {selectedReportType === 'bridge_closed' && 'Bridge Closed'}
+                  {selectedReportType === 'lock_closed' && 'Lock Closed'}
+                  {selectedReportType === 'obstruction' && 'Obstruction'}
+                  {selectedReportType === 'hazardous_navigation' && 'Hazardous Navigation'}
+                  {selectedReportType === 'speed_limit' && 'Speed Limit'}
+                  {selectedReportType === 'port_full' && 'Port Full'}
+                  {selectedReportType === 'accident' && 'Accident'}
+                  {selectedReportType === 'police_checkpoint' && 'Police Checkpoint'}
+                </h4>
+                <p className="text-yellow-100 text-sm mt-2">Click on the map to add this report</p>
+              </div>
+              
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    // Dispatch event to enable map click mode for reporting
+                    window.dispatchEvent(new CustomEvent('enableReportMode', { 
+                      detail: { reportType: selectedReportType } 
+                    }))
+                    setShowReportPanel(false)
+                  }}
+                  className="flex-1 p-3 bg-white/20 hover:bg-white/30 text-white rounded-lg font-medium transition-colors border border-white/30"
+                >
+                  📍 Click on Map
+                </button>
+                <button
+                  onClick={() => setSelectedReportType(null)}
+                  className="p-3 bg-white/20 hover:bg-white/30 text-white rounded-lg transition-colors border border-white/30"
+                >
+                  ← Back
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
