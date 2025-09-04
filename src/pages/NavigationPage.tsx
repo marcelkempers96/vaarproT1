@@ -6,7 +6,7 @@ import L from 'leaflet'
 import { findWaterwayRoute } from '../utils/routing'
 import EnhancedPOILayer from '../components/EnhancedPOILayer'
 import { useSettings } from '../contexts/SettingsContext'
-import { extractRoutePOIs } from '../utils/poiUtils'
+import { extractRoutePOIs, extractRoutePOIsWithCorridor } from '../utils/poiUtils'
 
 // Enhanced POI Popup Styles
 const enhancedPopupStyles = `
@@ -755,15 +755,10 @@ const NavigationPage: React.FC = () => {
   }
 
 
-  // Find nearest waterway point to given coordinates (simplified - no graph building needed)
+  // Find nearest waterway point to given coordinates - now works with any click location
   const findNearestWaterwayPoint = (lat: number, lng: number) => {
-    if (!waterwaysData || !waterwaysData.elements) {
-      console.log('No waterways data available for snapping')
-      return null
-    }
-
-    // For now, just return the input coordinates
-    // The routing system will handle proper snapping
+    // Always return the input coordinates - the routing system will handle proper snapping
+    // This allows users to click anywhere, not just on loaded waterways
     console.log(`Using input coordinates for waterway point: [${lat}, ${lng}]`)
     return { 
       point: [lat, lng] as [number, number], 
@@ -781,16 +776,28 @@ const NavigationPage: React.FC = () => {
     
     console.log('🚀 Starting navigation from', startPoint, 'to', endCoord)
     
-    // Set routing status
+    // Set routing status with proper status message
     setIsNavigating(true)
     
     try {
       console.log('🔍 Calling findWaterwayRoute with coordinates:', { startPoint, endCoord, waterwaysData })
-      const route = await findWaterwayRoute(startPoint, endCoord, waterwaysData, settings.boatSpeed)
+      
+      // Create fetchOverpass function for corridor prefetching
+      const fetchOverpassForRouting = async (query: string, key: string) => {
+        return await fetchOverpass(query, 'routing')
+      }
+      
+      const route = await findWaterwayRoute(
+        startPoint, 
+        endCoord, 
+        waterwaysData, 
+        settings.boatSpeed,
+        fetchOverpassForRouting
+      )
       
       if (!route) {
         console.log('❌ No waterway route found - navigation cannot start')
-        alert('❌ No waterway route found! Both start and end points must be on waterways.')
+        alert('❌ No waterway route found! Please try different start and end points.')
         setIsNavigating(false)
         return
       }
@@ -802,17 +809,31 @@ const NavigationPage: React.FC = () => {
       setRouteCoordinates(route.coordinates)
       setCurrentStep(0)
       
-      // Calculate POIs along the route
-      const routePOIsData = extractRoutePOIs(
-        route.coordinates,
-        locksData,
-        bridgesData,
-        docksData,
-        startPoint,
-        endCoord,
-        gasStationsData
-      )
-      setRoutePOIs(routePOIsData.pois)
+      // Calculate POIs along the route using enhanced corridor-based extraction
+      try {
+        const routePOIsData = await extractRoutePOIsWithCorridor(
+          route.coordinates,
+          startPoint,
+          endCoord,
+          fetchOverpassForRouting,
+          settings.boatSpeed
+        )
+        setRoutePOIs(routePOIsData.pois)
+        console.log('✅ Extracted', routePOIsData.pois.length, 'POIs along route')
+      } catch (error) {
+        console.warn('⚠️ Enhanced POI extraction failed, using fallback:', error)
+        // Fallback to basic POI extraction
+        const routePOIsData = extractRoutePOIs(
+          route.coordinates,
+          locksData,
+          bridgesData,
+          docksData,
+          startPoint,
+          endCoord,
+          gasStationsData
+        )
+        setRoutePOIs(routePOIsData.pois)
+      }
       
       // Show bottom navigation panel when route is complete
       setShowBottomNavigationPanel(true)
@@ -1305,6 +1326,16 @@ const NavigationPage: React.FC = () => {
         </div>
       )}
 
+
+      {/* Route Calculation Status */}
+      {isNavigating && (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-[9999] bg-blue-600 text-white px-6 py-3 rounded-lg shadow-2xl">
+          <div className="flex items-center gap-3">
+            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+            <span className="text-base font-medium">Route is being calculated...</span>
+          </div>
+        </div>
+      )}
 
       {/* Waterway Route Status */}
       {startPoint && endPoint && !isNavigating && (

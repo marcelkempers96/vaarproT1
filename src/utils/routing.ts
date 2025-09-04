@@ -346,7 +346,7 @@ export const prefetchWaterwaysForCorridor = async (
   }
 }
 
-// Main routing function with immediate corridor prefetching
+// Main routing function with immediate corridor prefetching - EXACTLY like kanaalkaart.html
 export const findWaterwayRoute = async (
   start: [number, number], 
   end: [number, number], 
@@ -358,21 +358,41 @@ export const findWaterwayRoute = async (
   
   let dataToUse = waterwaysData
   
-  // If we have a fetchOverpass function and no waterways data, or insufficient data, prefetch for corridor
-  if (fetchOverpass && (!waterwaysData || !waterwaysData.elements || waterwaysData.elements.length === 0)) {
-    console.log('🔄 No waterways data available, prefetching for corridor...')
-    dataToUse = await prefetchWaterwaysForCorridor(
-      {lat: start[0], lng: start[1]}, 
-      {lat: end[0], lng: end[1]}, 
-      fetchOverpass
-    )
+  // ALWAYS prefetch for corridor if we have fetchOverpass function - like kanaalkaart.html
+  if (fetchOverpass) {
+    console.log('🔄 Prefetching waterways for corridor (like kanaalkaart.html)...')
+    try {
+      const corridorData = await prefetchWaterwaysForCorridor(
+        {lat: start[0], lng: start[1]}, 
+        {lat: end[0], lng: end[1]}, 
+        fetchOverpass,
+        0.12 // ~13 km padding like kanaalkaart
+      )
+      
+      // Merge with existing data if available
+      if (dataToUse && dataToUse.elements) {
+        const existingIds = new Set(dataToUse.elements.map((el: any) => el.id))
+        const newElements = corridorData.elements.filter((el: any) => !existingIds.has(el.id))
+        dataToUse = {
+          elements: [...dataToUse.elements, ...newElements]
+        }
+        console.log('🔄 Merged corridor data with existing:', dataToUse.elements.length, 'total elements')
+      } else {
+        dataToUse = corridorData
+        console.log('🔄 Using corridor data only:', dataToUse.elements.length, 'elements')
+      }
+    } catch (error) {
+      console.warn('⚠️ Corridor prefetching failed, using existing data:', error)
+    }
   }
   
-  if (!dataToUse || !dataToUse.elements) {
+  if (!dataToUse || !dataToUse.elements || dataToUse.elements.length === 0) {
     console.log('❌ No waterways data available - cannot create route')
     return null
   }
 
+  console.log('🔍 Building graph from', dataToUse.elements.length, 'waterway elements')
+  
   // Build graph from waterways data
   const graph = await buildGraphFromWaterways(dataToUse.elements)
   
@@ -380,6 +400,8 @@ export const findWaterwayRoute = async (
     console.log('❌ No graph segments available - cannot create route')
     return null
   }
+
+  console.log('📍 Graph built with', graph.nodes.size, 'nodes and', graph.segments.length, 'segments')
 
   // Find nearest graph nodes for start and end points
   const startNode = findNearestGraphNode({lat: start[0], lng: start[1]}, graph, true)
@@ -390,8 +412,8 @@ export const findWaterwayRoute = async (
     return null
   }
 
-  console.log('📍 Start node:', startNode.id, 'at', startNode.at)
-  console.log('📍 End node:', endNode.id, 'at', endNode.at)
+  console.log('📍 Start node:', startNode.id, 'at', startNode.at, 'snapped:', startNode.snapped)
+  console.log('📍 End node:', endNode.id, 'at', endNode.at, 'snapped:', endNode.snapped)
 
   // Find shortest path using Dijkstra's algorithm
   const route = findShortestPath(startNode.id, endNode.id, graph)
@@ -410,6 +432,7 @@ export const findWaterwayRoute = async (
   console.log('✅ Route coordinates:', coordinates.length, 'points')
   console.log('✅ First coordinate:', coordinates[0])
   console.log('✅ Last coordinate:', coordinates[coordinates.length - 1])
+  console.log('✅ Total distance:', Math.round(route.meters), 'meters')
 
   // Convert boat speed from km/h to m/s for calculation
   const speedMps = (boatSpeed * 1000) / 3600
@@ -423,7 +446,10 @@ export const findWaterwayRoute = async (
       estimatedTime: Math.round(route.meters / speedMps / 60) // Convert to minutes
     }],
     totalDistance: route.meters,
-    totalTime: Math.round(route.meters / speedMps / 60) // Convert to minutes
+    totalTime: Math.round(route.meters / speedMps / 60), // Convert to minutes
+    graph: graph, // Include graph for POI extraction
+    startNode: startNode,
+    endNode: endNode
   }
 
   return routeResult

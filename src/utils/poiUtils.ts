@@ -84,7 +84,7 @@ const cleanPOIName = (name: string, type: string, id: string): string => {
   return cleanedName
 }
 
-// Extract POIs from route coordinates and map data
+// Extract POIs from route coordinates and map data - enhanced to work with corridor-prefetched waterways
 export const extractRoutePOIs = (
   routeCoordinates: [number, number][],
   locksData: any,
@@ -94,7 +94,8 @@ export const extractRoutePOIs = (
   endPoint: [number, number],
   gasStationsData?: any,
   buoysData?: any,
-  reportsData?: any // Add reports data parameter
+  reportsData?: any, // Add reports data parameter
+  routeGraph?: any // Add route graph for enhanced POI detection
 ): RoutePOIs => {
   const pois: POI[] = []
   let totalDistance = 0
@@ -166,6 +167,214 @@ export const extractRoutePOIs = (
     startPoint,
     endPoint
   }
+}
+
+// Enhanced POI extraction that fetches POIs along the route corridor - like kanaalkaart.html
+export const extractRoutePOIsWithCorridor = async (
+  routeCoordinates: [number, number][],
+  startPoint: [number, number],
+  endPoint: [number, number],
+  fetchOverpass: (query: string, key: string) => Promise<any>,
+  boatSpeed: number = 8.5
+): Promise<RoutePOIs> => {
+  console.log('🔍 Extracting POIs along route corridor...')
+  
+  const pois: POI[] = []
+  let totalDistance = 0
+  
+  // Add start waypoint
+  pois.push({
+    id: 'start',
+    type: 'waypoint',
+    name: 'Start Point',
+    description: 'Navigation starting point',
+    coordinates: startPoint,
+    distance: 0,
+    estimatedTime: 0,
+    icon: '📍',
+    waterway: 'Route Start'
+  })
+  
+  // Calculate total route distance
+  for (let i = 0; i < routeCoordinates.length - 1; i++) {
+    const segmentDistance = haversine(routeCoordinates[i], routeCoordinates[i + 1])
+    totalDistance += segmentDistance
+  }
+  
+  // Create corridor bounds for POI fetching (like kanaalkaart.html)
+  const pad = 0.05 // ~5.5 km padding
+  let s = Math.min(startPoint[0], endPoint[0]) - pad
+  let w = Math.min(startPoint[1], endPoint[1]) - pad
+  let n = Math.max(startPoint[0], endPoint[0]) + pad
+  let e = Math.max(startPoint[1], endPoint[1]) + pad
+  
+  // Clamp to valid bounds
+  s = Math.max(-90, s)
+  n = Math.min(90, n)
+  w = Math.max(-180, w)
+  e = Math.min(180, e)
+  
+  const bbox = `${s},${w},${n},${e}`
+  
+  try {
+    // Fetch POIs along the route corridor
+    const poiQuery = `[
+      out:json][timeout:30];(
+        node["waterway"="lock_gate"](${bbox});
+        way["waterway"="lock_gate"](${bbox});
+        node["lock"="yes"](${bbox});
+        way["lock"="yes"](${bbox});
+        node["waterway"="lock"](${bbox});
+        way["waterway"="lock"](${bbox});
+        way["bridge"]["waterway"](${bbox});
+        way["bridge"]["seamark:type"](${bbox});
+        way["bridge"]["seamark:bridge:category"](${bbox});
+        way["bridge"]["seamark:bridge:movable"](${bbox});
+        way["bridge"]["seamark:bridge:fixed"](${bbox});
+        way["bridge"]["seamark:bridge:opening"](${bbox});
+        node["leisure"="marina"](${bbox});
+        way["leisure"="marina"](${bbox});
+        node["seamark:type"="harbour"]["seamark:harbour:category"~"marina|yacht_harbour"](${bbox});
+        node["tourism"="hotel"]["mooring"="yes"](${bbox});
+        node["mooring"="yes"](${bbox});
+        way["mooring"="yes"](${bbox});
+        node["seamark:type"="pontoon"](${bbox});
+        node["harbour"](${bbox});
+        way["harbour"](${bbox});
+        node["amenity"="fuel"](${bbox});
+        way["amenity"="fuel"](${bbox});
+        node["seamark:type"="fuel"](${bbox});
+        node["fuel"](${bbox});
+        way["fuel"](${bbox});
+        node["seamark:fuel:type"](${bbox});
+      ); out tags center qt;`
+    
+    const poiData = await fetchOverpass(poiQuery, `pois:${bbox}`)
+    
+    if (poiData && poiData.elements) {
+      console.log('✅ Fetched', poiData.elements.length, 'POIs along route corridor')
+      
+      // Process POIs and find those near the route
+      poiData.elements.forEach((poi: any) => {
+        const poiCoord = getPOICoordinates(poi)
+        if (!poiCoord) return
+        
+        // Check if POI is near the route
+        let minDistance = Infinity
+        let closestRoutePoint: [number, number] | null = null
+        
+        for (let i = 0; i < routeCoordinates.length - 1; i++) {
+          const distance = pointToLineDistance(poiCoord, routeCoordinates[i], routeCoordinates[i + 1])
+          if (distance < minDistance) {
+            minDistance = distance
+            closestRoutePoint = routeCoordinates[i]
+          }
+        }
+        
+        // Only include POIs within 200m of the route
+        if (minDistance <= 200 && closestRoutePoint) {
+          const distanceFromStart = calculateDistanceAlongRoute(poiCoord, routeCoordinates)
+          
+          // Determine POI type
+          let poiType: POI['type'] = 'waypoint'
+          let icon = '📍'
+          let name = 'Unknown POI'
+          let description = 'Point of interest'
+          
+          if (poi.tags?.waterway === 'lock_gate' || poi.tags?.lock === 'yes' || poi.tags?.waterway === 'lock') {
+            poiType = 'lock'
+            icon = '🚦'
+            name = cleanPOIName(poi.tags?.name || '', 'lock', poi.id)
+            description = `Waterway lock${poi.tags?.lock_type ? ` (${poi.tags.lock_type})` : ''}`
+          } else if (poi.tags?.bridge) {
+            poiType = 'bridge'
+            icon = '🌉'
+            name = cleanPOIName(poi.tags?.name || '', 'bridge', poi.id)
+            description = `Bridge${poi.tags?.bridge_type ? ` (${poi.tags.bridge_type})` : ''}`
+          } else if (poi.tags?.leisure === 'marina' || poi.tags?.mooring === 'yes' || poi.tags?.harbour || poi.tags?.['seamark:type'] === 'harbour') {
+            poiType = 'harbor'
+            icon = '⚓'
+            name = cleanPOIName(poi.tags?.name || '', 'harbor', poi.id)
+            description = `Harbor/Marina${poi.tags?.seamark_type ? ` (${poi.tags.seamark_type})` : ''}`
+          } else if (poi.tags?.amenity === 'fuel' || poi.tags?.fuel || poi.tags?.['seamark:type'] === 'fuel') {
+            poiType = 'gas_station'
+            icon = '⛽'
+            name = cleanPOIName(poi.tags?.name || '', 'gas_station', poi.id)
+            description = `Fuel station${poi.tags?.fuel ? ` (${poi.tags.fuel})` : ''}`
+          }
+          
+          pois.push({
+            id: `${poiType}_${poi.id}`,
+            type: poiType,
+            name,
+            description,
+            coordinates: poiCoord,
+            distance: distanceFromStart,
+            estimatedTime: 0, // Will be calculated later
+            icon,
+            tags: poi.tags,
+            waterway: poi.tags?.waterway || 'Unknown'
+          })
+        }
+      })
+    }
+  } catch (error) {
+    console.warn('⚠️ Failed to fetch POIs along route corridor:', error)
+  }
+  
+  // Add end waypoint
+  pois.push({
+    id: 'end',
+    type: 'waypoint',
+    name: 'Destination',
+    description: 'Navigation destination point',
+    coordinates: endPoint,
+    distance: totalDistance,
+    estimatedTime: Math.round(totalDistance / (boatSpeed * 1000 / 3600) / 60),
+    icon: '🎯',
+    waterway: 'Route End'
+  })
+  
+  // Sort POIs by distance from start
+  pois.sort((a, b) => a.distance - b.distance)
+  
+  // Calculate estimated times for all POIs
+  const speedMps = boatSpeed * 1000 / 3600 // Convert km/h to m/s
+  pois.forEach(poi => {
+    poi.estimatedTime = Math.round(poi.distance / speedMps / 60) // Convert to minutes
+  })
+  
+  console.log('✅ Extracted', pois.length, 'POIs along route')
+  
+  return {
+    pois,
+    totalDistance,
+    totalTime: Math.round(totalDistance / speedMps / 60),
+    startPoint,
+    endPoint
+  }
+}
+
+// Calculate distance along route for a given point
+const calculateDistanceAlongRoute = (point: [number, number], routeCoordinates: [number, number][]): number => {
+  let totalDistance = 0
+  
+  for (let i = 0; i < routeCoordinates.length - 1; i++) {
+    const segmentStart = routeCoordinates[i]
+    const segmentEnd = routeCoordinates[i + 1]
+    
+    // Check if point is on this segment
+    const distanceToSegment = pointToLineDistance(point, segmentStart, segmentEnd)
+    if (distanceToSegment <= 50) { // Within 50m of segment
+      // Calculate distance from start of route to this point
+      const distanceToStart = haversine(point, segmentStart)
+      return totalDistance + distanceToStart
+    }
+    
+    totalDistance += haversine(segmentStart, segmentEnd)
+  }
+  
+  return totalDistance
 }
 
 // Find POIs near a route segment
