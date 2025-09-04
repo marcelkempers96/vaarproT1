@@ -1053,18 +1053,37 @@ const NavigationPage: React.FC = () => {
     }
 
     const handleSaveCurrentRoute = () => {
-      if (currentRoute && startPoint && endPoint) {
+      if (currentRoute && startPoint && endPoint && routeCoordinates.length > 0) {
         const routeName = prompt('Enter a name for this route:')
-        if (routeName) {
+        if (routeName && routeName.trim()) {
           const newRoute = {
             id: Date.now().toString(),
-            name: routeName,
+            name: routeName.trim(),
             startPoint,
             endPoint,
-            routeData: currentRoute
+            routeData: currentRoute,
+            coordinates: routeCoordinates,
+            totalDistance: currentRoute.totalDistance,
+            totalTime: currentRoute.totalTime,
+            savedAt: new Date().toISOString()
           }
-          // This would need to be handled by the parent component
-          window.dispatchEvent(new CustomEvent('routeSaved', { detail: { route: newRoute } }))
+          
+          // Save to localStorage
+          try {
+            const savedRoutesKey = 'vaarpro_saved_routes'
+            const existingRoutes = JSON.parse(localStorage.getItem(savedRoutesKey) || '[]')
+            const updatedRoutes = [...existingRoutes, newRoute].slice(-3) // Keep only last 3 routes
+            localStorage.setItem(savedRoutesKey, JSON.stringify(updatedRoutes))
+            
+            console.log('✅ Route saved successfully:', newRoute.name)
+            alert(`✅ Route "${newRoute.name}" saved successfully!`)
+            
+            // Dispatch event to update the UI
+            window.dispatchEvent(new CustomEvent('routeSaved', { detail: { route: newRoute } }))
+          } catch (error) {
+            console.error('❌ Failed to save route:', error)
+            alert('❌ Failed to save route. Please try again.')
+          }
         }
       } else {
         alert('No active route to save. Please start navigation first.')
@@ -1077,9 +1096,13 @@ const NavigationPage: React.FC = () => {
       setEndPoint(route.endPoint)
       if (route.routeData) {
         setCurrentRoute(route.routeData)
-        setRouteCoordinates(route.routeData.coordinates)
+        setRouteCoordinates(route.routeData.coordinates || route.coordinates)
+        setCurrentStep(0)
+        setShowBottomNavigationPanel(true)
+        setIsNavigating(true)
+        console.log('🗺️ Loaded saved route:', route.name)
+        alert(`✅ Route "${route.name}" loaded successfully!`)
       }
-      console.log('🗺️ Loaded saved route:', route.name)
     }
 
     window.addEventListener('changeMapStyle', handleMapStyleChange as EventListener)

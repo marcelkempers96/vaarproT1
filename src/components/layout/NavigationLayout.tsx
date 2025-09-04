@@ -29,6 +29,20 @@ const NavigationLayout: React.FC = () => {
 
   // Handle saved routes
   useEffect(() => {
+    // Load saved routes from localStorage on startup
+    const loadSavedRoutes = () => {
+      try {
+        const savedRoutesKey = 'vaarpro_saved_routes'
+        const savedRoutesData = localStorage.getItem(savedRoutesKey)
+        if (savedRoutesData) {
+          const routes = JSON.parse(savedRoutesData)
+          setSavedRoutes(routes)
+        }
+      } catch (error) {
+        console.warn('Failed to load saved routes:', error)
+      }
+    }
+
     const handleRouteSaved = (event: CustomEvent) => {
       const { route } = event.detail
       setSavedRoutes(prev => {
@@ -37,6 +51,9 @@ const NavigationLayout: React.FC = () => {
         return newRoutes.slice(-3)
       })
     }
+
+    // Load routes on startup
+    loadSavedRoutes()
 
     window.addEventListener('routeSaved', handleRouteSaved as EventListener)
     
@@ -265,7 +282,21 @@ const NavigationLayout: React.FC = () => {
                       </button>
                       <button
                         onClick={() => {
-                          setSavedRoutes(prev => prev.filter(r => r.id !== route.id))
+                          if (confirm(`Are you sure you want to delete "${route.name}"?`)) {
+                            // Remove from state
+                            setSavedRoutes(prev => prev.filter(r => r.id !== route.id))
+                            
+                            // Remove from localStorage
+                            try {
+                              const savedRoutesKey = 'vaarpro_saved_routes'
+                              const existingRoutes = JSON.parse(localStorage.getItem(savedRoutesKey) || '[]')
+                              const updatedRoutes = existingRoutes.filter((r: any) => r.id !== route.id)
+                              localStorage.setItem(savedRoutesKey, JSON.stringify(updatedRoutes))
+                              console.log('✅ Route deleted successfully:', route.name)
+                            } catch (error) {
+                              console.error('❌ Failed to delete route from localStorage:', error)
+                            }
+                          }
                         }}
                         className="p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
                         title="Delete Route"
